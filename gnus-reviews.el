@@ -60,22 +60,22 @@
   :type 'string
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-own-patches-group "nnml:reviews.own-patches"
+(defcustom gnus-reviews-own-patches-group (concat gnus-reviews-base-group ".own-patches")
   "Group for reviews of your own patches."
   :type 'string
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-to-review-group "nnml:reviews.to-review"
+(defcustom gnus-reviews-to-review-group (concat gnus-reviews-base-group ".to-review")
   "Group for patches you intend to review."
   :type 'string
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-watching-group "nnml:reviews.watching"
+(defcustom gnus-reviews-watching-group (concat gnus-reviews-base-group ".watching")
   "Group for patches you want to watch without reviewing."
   :type 'string
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-finished-group "nnml:reviews.finished"
+(defcustom gnus-reviews-finished-group (concat gnus-reviews-base-group ".finished")
   "Group for completed reviews."
   :type 'string
   :group 'gnus-reviews)
