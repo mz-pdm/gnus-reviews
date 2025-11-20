@@ -60,12 +60,12 @@
   :type 'string
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-own-patches-group (concat gnus-reviews-base-group ".own-patches")
+(defcustom gnus-reviews-own-patches-group (concat gnus-reviews-base-group ".patches")
   "Group for reviews of your own patches."
   :type 'string
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-to-review-group (concat gnus-reviews-base-group ".to-review")
+(defcustom gnus-reviews-to-review-group (concat gnus-reviews-base-group ".reviews")
   "Group for patches you intend to review."
   :type 'string
   :group 'gnus-reviews)
