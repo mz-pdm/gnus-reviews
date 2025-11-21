@@ -226,34 +226,35 @@ where comment-plist is (:status status :content content :thread-id thread-id :ti
 
 ;;; Utility Functions
 
-(defun gnus-reviews--current-article-id ()
-  "Get the Message-ID of the current article.
-Works correctly from both summary and article buffer contexts."
+(defun gnus-reviews--article-header (func field)
   (cond
    ;; Try to get from article buffer context first (most reliable)
    ((and (boundp 'gnus-current-headers) gnus-current-headers)
-    (mail-header-id gnus-current-headers))
+    (funcall func gnus-current-headers))
    ;; Try getting from article buffer if we're in one
    ((gnus-buffer-live-p gnus-article-buffer)
     (with-current-buffer gnus-article-buffer
       (when (and (boundp 'gnus-current-headers) gnus-current-headers)
-        (mail-header-id gnus-current-headers))))
+        (funcall func gnus-current-headers))))
    ;; Fall back to summary buffer approach
    ((and (gnus-summary-article-number)
          (gnus-summary-article-header))
-    (mail-header-id (gnus-summary-article-header)))
+    (funcall func (gnus-summary-article-header)))
    ;; Last resort: try to extract from raw article headers
    (t
     (gnus-with-article-headers
-      (gnus-fetch-field "Message-ID")))))
+      (gnus-fetch-field field)))))
 
-(defun gnus-reviews--get-thread-id (article-id)
-  "Get the thread ID for ARTICLE-ID.
-Uses In-Reply-To and References headers to determine thread membership."
-  (gnus-with-article-buffer
-    (or (gnus-fetch-field "In-Reply-To")
-        (car (split-string (or (gnus-fetch-field "References") "") " "))
-        article-id)))
+(defun gnus-reviews--current-article-id ()
+  "Return the Message-ID of the current article."
+  (gnus-reviews--article-header #'mail-header-id "Message-ID"))
+
+(defun gnus-reviews--current-thread-id ()
+  "Get the thread ID of the current article.
+Uses References headers to determine thread membership."
+  (when-let ((refs (gnus-reviews--article-header #'mail-header-references "References")))
+    (unless (equal refs "")
+      (car (split-string refs " ")))))
 
 ;;; Message Classification
 
@@ -433,7 +434,7 @@ STATUS should be one of: `pending', `addressed', `dismissed'.
 COMMENT-ORDER is the sequential order of this comment within the article (1-based).
 CONTEXT is optional code context the comment refers to."
   (let* ((article-id (gnus-reviews--current-article-id))
-         (thread-id (gnus-reviews--get-thread-id article-id))
+         (thread-id (gnus-reviews--current-thread-id))
          (comment-id (gnus-reviews--generate-comment-id article-id comment-order))
          (comment-data (list :status status
                              :content comment-text
@@ -482,7 +483,7 @@ CONTEXT is optional code context the comment refers to."
 (defun gnus-reviews--get-current-patch-series ()
   "Get patch series information for the current context."
   (gnus-with-article-buffer
-    (let* ((thread-id (gnus-reviews--get-thread-id (gnus-reviews--current-article-id)))
+    (let* ((thread-id (gnus-reviews--current-thread-id))
            (patch-info (gnus-reviews-extract-patch-info)))
       (when patch-info
         (list :thread-id thread-id
