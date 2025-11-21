@@ -250,7 +250,7 @@ Uses In-Reply-To and References headers to determine thread membership."
 (defun gnus-reviews--extract-subject ()
   "Extract and clean the subject line of the current article."
   (let ((subject (gnus-with-article-buffer
-                  (gnus-fetch-field "Subject"))))
+                   (gnus-fetch-field "Subject"))))
     (when subject
       ;; Remove common prefixes
       (setq subject (replace-regexp-in-string "^\\(Re: \\|Fwd: \\)+" "" subject))
@@ -372,17 +372,17 @@ Returns a list of (content start-pos end-pos context) for each comment."
           (let ((quoted-line (match-string 1)))
             ;; Look for commentary after quoted code
             (when (and (forward-line 1)
-                      (looking-at "^\\([^>].*\\)$"))
+                       (looking-at "^\\([^>].*\\)$"))
               (let ((comment-text (string-trim (match-string 1)))
                     (comment-start (+ body-start (match-beginning 1)))
                     (comment-end (+ body-start (match-end 1))))
                 ;; Track all comments, even short ones like "LGTM", "Fix this"
                 (when (and (> (length comment-text) 0)
-                          (string-match "\\w" comment-text))
+                           (string-match "\\w" comment-text))
                   (push (list comment-text
-                             comment-start
-                             comment-end
-                             quoted-line)
+                              comment-start
+                              comment-end
+                              quoted-line)
                         comments))))))
 
         ;; Look for inline comments (non-quoted substantial lines)
@@ -393,7 +393,7 @@ Returns a list of (content start-pos end-pos context) for each comment."
                 (comment-end (+ body-start (match-end 1))))
             ;; Exclude signature lines, headers, but include all actual comments
             (when (and (not (string-match "^\\(On \\|--\\|___\\|From:\\|Subject:\\)" comment-text))
-                      (string-match "\\w" comment-text))
+                       (string-match "\\w" comment-text))
               (push (list comment-text comment-start comment-end nil) comments)))))
 
       (nreverse comments))))
@@ -408,17 +408,17 @@ POSITION is optional buffer position of the comment."
          (thread-id (gnus-reviews--get-thread-id article-id))
          (comment-id (gnus-reviews--generate-comment-id))
          (comment-data (list status
-                           comment-text
-                           thread-id
-                           (current-time)
-                           context
-                           position)))
+                             comment-text
+                             thread-id
+                             (current-time)
+                             context
+                             position)))
     (when article-id
       ;; Add to comment database
       (let ((article-comments (assoc article-id gnus-reviews-comment-database)))
         (if article-comments
             (setcdr article-comments
-                   (cons (cons comment-id comment-data) (cdr article-comments)))
+                    (cons (cons comment-id comment-data) (cdr article-comments)))
           (push (cons article-id (list (cons comment-id comment-data)))
                 gnus-reviews-comment-database)))
       ;; Save data
@@ -446,8 +446,8 @@ POSITION is optional buffer position of the comment."
       (dolist (comment (cdr article-entry))
         (when (eq (nth 1 comment) 'pending)
           (push (list (car comment)           ; comment-id
-                     (car article-entry)     ; article-id
-                     (nth 1 comment))        ; status
+                      (car article-entry)     ; article-id
+                      (nth 1 comment))        ; status
                 pending))))
     pending))
 
@@ -556,12 +556,12 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
                      (position (nth 1 comment))
                      (display-text (if context
                                        (format "Context: %s\nComment: %s"
-                                              context
-                                              (substring text 0 (min 100 (length text))))
+                                               context
+                                               (substring text 0 (min 100 (length text))))
                                      (substring text 0 (min 100 (length text)))))
                      (status (completing-read
-                             (format "Status for comment: %s\n> " display-text)
-                             status-choices nil t)))
+                              (format "Status for comment: %s\n> " display-text)
+                              status-choices nil t)))
                 (unless (string= status "skip")
                   (gnus-reviews-track-individual-comment text (intern status) context position)
                   (cl-incf tracked-count))))
@@ -578,10 +578,10 @@ STATUS should be one of: pending, addressed, dismissed."
   (let* ((status-symbol (intern status))
          (comment-text (buffer-substring-no-properties start end))
          (comment-id (gnus-reviews-track-individual-comment
-                     comment-text status-symbol nil start)))
+                      comment-text status-symbol nil start)))
     (message "Tracked comment %s as %s: %s"
-            comment-id status
-            (substring comment-text 0 (min 50 (length comment-text))))))
+             comment-id status
+             (substring comment-text 0 (min 50 (length comment-text))))))
 
 ;;;###autoload
 (defun gnus-reviews-mark-comment-addressed ()
@@ -589,23 +589,23 @@ STATUS should be one of: pending, addressed, dismissed."
   (interactive)
   (let* ((series-comments (gnus-reviews-list-pending-comments-for-series))
          (pending-comments (if series-comments
-                              series-comments
-                            ;; Fall back to article-specific comments
-                            (let ((article-comments (gnus-reviews-get-comments-for-article
-                                                     (gnus-reviews--current-article-id))))
-                              (cl-remove-if-not
-                               (lambda (comment) (eq (nth 1 comment) 'pending))
-                               article-comments)))))
+                               series-comments
+                             ;; Fall back to article-specific comments
+                             (let ((article-comments (gnus-reviews-get-comments-for-article
+                                                      (gnus-reviews--current-article-id))))
+                               (cl-remove-if-not
+                                (lambda (comment) (eq (nth 1 comment) 'pending))
+                                article-comments)))))
     (if pending-comments
         (let* ((comment-choices (mapcar (lambda (comment)
-                                         (let ((content (nth 2 (cdr comment))))
-                                           (cons (format "%s: %s"
-                                                        (car comment)
-                                                        (if content
-                                                            (substring content 0 (min 50 (length content)))
-                                                          "No content"))
-                                                 (car comment))))
-                                       pending-comments))
+                                          (let ((content (nth 2 (cdr comment))))
+                                            (cons (format "%s: %s"
+                                                          (car comment)
+                                                          (if content
+                                                              (substring content 0 (min 50 (length content)))
+                                                            "No content"))
+                                                  (car comment))))
+                                        pending-comments))
                (choice (completing-read "Mark comment as addressed: " comment-choices))
                (comment-id (cdr (assoc choice comment-choices))))
           (gnus-reviews-update-comment-status comment-id 'addressed)
@@ -621,7 +621,7 @@ STATUS should be one of: pending, addressed, dismissed."
     (if series-comments
         (with-output-to-temp-buffer "*Gnus Reviews: Series Comments*"
           (princ (format "Comments for patch series: %s\n"
-                        (or (plist-get series-info :subject) "Unknown")))
+                         (or (plist-get series-info :subject) "Unknown")))
           (princ "========================================\n\n")
           (dolist (comment series-comments)
             (let ((status (nth 1 (cdr comment)))
@@ -629,14 +629,14 @@ STATUS should be one of: pending, addressed, dismissed."
                   (context (nth 5 (cdr comment)))
                   (timestamp (nth 4 (cdr comment))))
               (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
-                            (car comment) status
-                            (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
+                             (car comment) status
+                             (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
               (when context
                 (princ (format "Context: %s\n" context)))
               (princ (format "Comment: %s\n\n"
-                            (if content
-                                (substring content 0 (min 200 (length content)))
-                              "No content"))))))
+                             (if content
+                                 (substring content 0 (min 200 (length content)))
+                               "No content"))))))
       (message "No comments found for current patch series"))))
 
 ;;;###autoload
@@ -655,14 +655,14 @@ STATUS should be one of: pending, addressed, dismissed."
                   (context (nth 5 comment))
                   (timestamp (nth 4 comment)))
               (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
-                            (car comment) status
-                            (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
+                             (car comment) status
+                             (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
               (when context
                 (princ (format "Context: %s\n" context)))
               (princ (format "Comment: %s\n\n"
-                            (if content
-                                (substring content 0 (min 300 (length content)))
-                              "No content"))))))
+                             (if content
+                                 (substring content 0 (min 300 (length content)))
+                               "No content"))))))
       (message "No individual comments found for current article"))))
 
 ;;;###autoload
@@ -672,31 +672,31 @@ Uses `gnus-reviews-auto-expire-days' as the cutoff age.
 Keeps all pending comments regardless of age."
   (interactive)
   (let ((cutoff-time (time-subtract (current-time)
-                                   (days-to-time gnus-reviews-auto-expire-days)))
+                                    (days-to-time gnus-reviews-auto-expire-days)))
         (removed-count 0))
     ;; Remove only old completed/dismissed comments, keep pending ones
     (setq gnus-reviews-comment-database
           (mapcar (lambda (article-entry)
-                   (cons (car article-entry)
-                         (cl-remove-if (lambda (comment)
-                                        (let ((comment-time (nth 4 comment))
-                                              (status (nth 1 comment)))
-                                          (when (and comment-time
-                                                    (time-less-p comment-time cutoff-time)
-                                                    (memq status '(addressed dismissed)))
-                                            (cl-incf removed-count)
-                                            t)))
-                                      (cdr article-entry))))
+                    (cons (car article-entry)
+                          (cl-remove-if (lambda (comment)
+                                          (let ((comment-time (nth 4 comment))
+                                                (status (nth 1 comment)))
+                                            (when (and comment-time
+                                                       (time-less-p comment-time cutoff-time)
+                                                       (memq status '(addressed dismissed)))
+                                              (cl-incf removed-count)
+                                              t)))
+                                        (cdr article-entry))))
                   gnus-reviews-comment-database))
     ;; Remove empty article entries
     (setq gnus-reviews-comment-database
           (cl-remove-if (lambda (entry) (null (cdr entry)))
-                       gnus-reviews-comment-database))
+                        gnus-reviews-comment-database))
     ;; Save changes
     (gnus-reviews--save-data)
     (message "Removed %d old completed comments (kept %d pending ones)"
-            removed-count
-            (length (gnus-reviews-list-pending-comments)))))
+             removed-count
+             (length (gnus-reviews-list-pending-comments)))))
 
 ;; Provide the package
 (provide 'gnus-reviews)
