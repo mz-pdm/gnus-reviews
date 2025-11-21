@@ -348,34 +348,65 @@ Returns a list of (content start-pos end-pos context) for each comment."
         (insert (substring content body-start))
         (goto-char (point-min))
 
-        ;; Look for quoted code blocks followed by comments
-        (while (re-search-forward "^> \\(.+\\)$" nil t)
-          (let ((quoted-line (match-string-no-properties 1)))
-            ;; Look for commentary after quoted code
-            (when (and (forward-line 1)
-                       (looking-at "^\\([^>].*\\)$"))
-              (let ((comment-text (save-match-data (string-trim (match-string-no-properties 1))))
-                    (comment-start (+ body-start (match-beginning 1)))
-                    (comment-end (+ body-start (match-end 1))))
-                ;; Track all comments, even short ones like "LGTM", "Fix this"
-                (when (and (> (length comment-text) 0)
-                           (string-match "\\w" comment-text))
-                  (push (list comment-text
-                              comment-start
-                              comment-end
-                              quoted-line)
-                        comments))))))
+        (let ((current-context nil)
+              (comment-lines '())
+              (comment-start-pos nil))
 
-        ;; Look for inline comments (non-quoted substantial lines)
-        (goto-char (point-min))
-        (while (re-search-forward "^\\([^>\n]\\{3,\\}.*\\)$" nil t)
-          (let ((comment-text (save-match-data (string-trim (match-string-no-properties 1))))
-                (comment-start (+ body-start (match-beginning 1)))
-                (comment-end (+ body-start (match-end 1))))
-            ;; Exclude signature lines, headers, but include all actual comments
-            (when (and (not (string-match "^\\(On \\|--\\|___\\|From:\\|Subject:\\)" comment-text))
-                       (string-match "\\w" comment-text))
-              (push (list comment-text comment-start comment-end nil) comments)))))
+          (while (not (eobp))
+            (cond
+             ;; Found quoted line - save any accumulated comment block first
+             ((looking-at "^> \\(.+\\)$")
+              (when comment-lines
+                (let ((comment-text (string-join (nreverse comment-lines) "\n")))
+                  (when (and (> (length comment-text) 0)
+                             (string-match "\\w" comment-text))
+                    (push (list comment-text
+                                (+ body-start comment-start-pos)
+                                (+ body-start (line-end-position 0))
+                                current-context)
+                          comments)))
+                (setq comment-lines nil
+                      comment-start-pos nil))
+              ;; Update context for future comments
+              (setq current-context (match-string-no-properties 1)))
+
+             ;; Found non-quoted, non-empty line
+             ((looking-at "^\\([^>\n].*\\)$")
+              (let ((line-text (save-match-data (string-trim (match-string-no-properties 1)))))
+                ;; Exclude signature lines, headers, but include actual comment content
+                (when (and (> (length line-text) 0)
+                           (string-match "\\w" line-text)
+                           (not (string-match "^\\(On \\|--\\|___\\|From:\\|Subject:\\)" line-text)))
+                  (when (null comment-start-pos)
+                    (setq comment-start-pos (line-beginning-position)))
+                  (push line-text comment-lines))))
+
+             ;; Empty line or other - save accumulated comment block if any
+             (t
+              (when comment-lines
+                (let ((comment-text (string-join (nreverse comment-lines) "\n")))
+                  (when (and (> (length comment-text) 0)
+                             (string-match "\\w" comment-text))
+                    (push (list comment-text
+                                (+ body-start comment-start-pos)
+                                (+ body-start (line-end-position 0))
+                                current-context)
+                          comments)))
+                (setq comment-lines nil
+                      comment-start-pos nil))))
+
+            (forward-line 1))
+
+          ;; Handle any remaining comment block at end of buffer
+          (when comment-lines
+            (let ((comment-text (string-join (nreverse comment-lines) "\n")))
+              (when (and (> (length comment-text) 0)
+                         (string-match "\\w" comment-text))
+                (push (list comment-text
+                            (+ body-start comment-start-pos)
+                            (+ body-start (point-max))
+                            current-context)
+                      comments))))))
 
       (nreverse comments))))
 
