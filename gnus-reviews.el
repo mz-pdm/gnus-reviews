@@ -327,12 +327,11 @@ Returns a plist with :series-num, :series-total, :version, :subject."
 
 ;;; Comment Tracking System
 
-(defun gnus-reviews--generate-comment-id ()
-  "Generate a unique comment ID."
-  (let ((timestamp (format "%d" (time-to-seconds)))
-        (random-num (random 10000))
-        (content-hash (format "%04x" (random 65536))))
-    (format "%s-%04d-%s" timestamp random-num content-hash)))
+(defun gnus-reviews--generate-comment-id (article-id comment-order)
+  "Generate a deterministic unique comment ID.
+ARTICLE-ID identifies the article, COMMENT-ORDER is the sequential order
+of this comment within the article (1-based)."
+  (format "%s#%d" article-id comment-order))
 
 (defun gnus-reviews--parse-individual-comments ()
   "Parse individual review comments from current article.
@@ -380,15 +379,16 @@ Returns a list of (content start-pos end-pos context) for each comment."
 
       (nreverse comments))))
 
-(defun gnus-reviews-track-individual-comment (comment-text status &optional context position)
+(defun gnus-reviews-track-individual-comment (comment-text status comment-order &optional context position)
   "Track an individual review comment.
 COMMENT-TEXT is the actual comment content.
 STATUS should be one of: `pending', `addressed', `dismissed'.
+COMMENT-ORDER is the sequential order of this comment within the article (1-based).
 CONTEXT is optional code context the comment refers to.
 POSITION is optional buffer position of the comment."
   (let* ((article-id (gnus-reviews--current-article-id))
          (thread-id (gnus-reviews--get-thread-id article-id))
-         (comment-id (gnus-reviews--generate-comment-id))
+         (comment-id (gnus-reviews--generate-comment-id article-id comment-order))
          (comment-data (list status
                              comment-text
                              thread-id
@@ -532,21 +532,23 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
       (if comments
           (progn
             (message "Found %d individual comments to process..." (length comments))
-            (dolist (comment comments)
-              (let* ((text (nth 0 comment))
-                     (context (nth 3 comment))
-                     (position (nth 1 comment))
-                     (display-text (if context
-                                       (format "Context: %s\nComment: %s"
-                                               context
-                                               (substring text 0 (min 100 (length text))))
-                                     (substring text 0 (min 100 (length text)))))
-                     (status (completing-read
-                              (format "Status for comment: %s\n> " display-text)
-                              status-choices nil t)))
-                (unless (string= status "skip")
-                  (gnus-reviews-track-individual-comment text (intern status) context position)
-                  (cl-incf tracked-count))))
+            (let ((comment-order 1))
+              (dolist (comment comments)
+                (let* ((text (nth 0 comment))
+                       (context (nth 3 comment))
+                       (position (nth 1 comment))
+                       (display-text (if context
+                                         (format "Context: %s\nComment: %s"
+                                                 context
+                                                 (substring text 0 (min 100 (length text))))
+                                       (substring text 0 (min 100 (length text)))))
+                       (status (completing-read
+                                (format "Status for comment: %s\n> " display-text)
+                                status-choices nil t)))
+                  (unless (string= status "skip")
+                    (gnus-reviews-track-individual-comment text (intern status) comment-order context position)
+                    (cl-incf tracked-count))
+                  (cl-incf comment-order))))
             (gnus-reviews-increase-score)
             (message "Tracked %d individual comments" tracked-count))
         (message "No individual comments found in this article")))))
@@ -559,8 +561,13 @@ STATUS should be one of: pending, addressed, dismissed."
   (interactive "r\nsComment status (pending/addressed/dismissed): ")
   (let* ((status-symbol (intern status))
          (comment-text (buffer-substring-no-properties start end))
+         (all-comments (gnus-reviews--parse-individual-comments))
+         (comment-order (1+ (cl-position-if (lambda (comment)
+                                              (>= start (nth 1 comment)))
+                                            all-comments
+                                            :from-end t)))
          (comment-id (gnus-reviews-track-individual-comment
-                      comment-text status-symbol nil start)))
+                      comment-text status-symbol comment-order nil start)))
     (message "Tracked comment %s as %s: %s"
              comment-id status
              (substring comment-text 0 (min 50 (length comment-text))))))
