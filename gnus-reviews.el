@@ -322,7 +322,8 @@ Returns a plist with :series-num, :series-total, :version, :subject."
           (user-name (gnus-reviews--get-user-name)))
       (and from
            (or (and user-email (string-match (regexp-quote user-email) from))
-               (and user-name (string-match (regexp-quote user-name) from)))))))
+               (and user-name (string-match (regexp-quote user-name) from)))
+           (gnus-reviews-is-patch-email-p)))))
 
 ;;; Comment Tracking System
 
