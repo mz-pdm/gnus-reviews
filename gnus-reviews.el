@@ -242,7 +242,7 @@ Uses In-Reply-To and References headers to determine thread membership."
 ;;; Message Classification
 
 (defcustom gnus-reviews-patch-patterns
-  '("\\[PATCH[^]]*\\]" "\\[RFC[^]]*\\]" "^diff --git" "^---.*\\+\\+\\+" "^Index: ")
+  '("^\\[PATCH[^]]*\\]" "^\\[RFC[^]]*\\]" "^diff --git" "^---.*\\+\\+\\+" "^Index: ")
   "Patterns that indicate a message contains a patch."
   :type '(repeat string)
   :group 'gnus-reviews)
