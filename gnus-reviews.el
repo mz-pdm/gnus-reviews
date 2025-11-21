@@ -227,11 +227,25 @@ where comment-plist is (:status status :content content :thread-id thread-id :ti
 ;;; Utility Functions
 
 (defun gnus-reviews--current-article-id ()
-  "Get the Message-ID of the current article."
-  (when (gnus-summary-article-number)
-    (let ((header (gnus-summary-article-header)))
-      (when header
-        (mail-header-id header)))))
+  "Get the Message-ID of the current article.
+Works correctly from both summary and article buffer contexts."
+  (cond
+   ;; Try to get from article buffer context first (most reliable)
+   ((and (boundp 'gnus-current-headers) gnus-current-headers)
+    (mail-header-id gnus-current-headers))
+   ;; Try getting from article buffer if we're in one
+   ((gnus-buffer-live-p gnus-article-buffer)
+    (with-current-buffer gnus-article-buffer
+      (when (and (boundp 'gnus-current-headers) gnus-current-headers)
+        (mail-header-id gnus-current-headers))))
+   ;; Fall back to summary buffer approach
+   ((and (gnus-summary-article-number)
+         (gnus-summary-article-header))
+    (mail-header-id (gnus-summary-article-header)))
+   ;; Last resort: try to extract from raw article headers
+   (t
+    (gnus-with-article-headers
+      (gnus-fetch-field "Message-ID")))))
 
 (defun gnus-reviews--get-thread-id (article-id)
   "Get the thread ID for ARTICLE-ID.
