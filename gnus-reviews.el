@@ -526,38 +526,26 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
 ;;; Public Interface
 
 ;;;###autoload
-(defun gnus-reviews-copy-to-group (group)
-  "Copy current article to GROUP."
+(defun gnus-reviews-copy-to-group (&optional group)
+  "Copy current article to GROUP.
+When called interactively, automatically suggests an appropriate group
+based on message classification but always asks for confirmation."
   (interactive
-   (list (completing-read "Copy to group: "
-                          (list gnus-reviews-own-patches-group
-                                gnus-reviews-to-review-group
-                                gnus-reviews-watching-group
-                                gnus-reviews-finished-group))))
-  (gnus-summary-copy-article nil group))
-
-;;;###autoload
-(defun gnus-reviews-process-article ()
-  "Process the current article based on its classification."
-  (interactive)
-  (let ((type (gnus-reviews-classify-message))
-        (article-id (gnus-reviews--current-article-id)))
-    (when article-id
-      (pcase type
-        ('own-patch
-         (gnus-reviews-copy-to-group gnus-reviews-own-patches-group)
-         (message "Copied own patch to %s" gnus-reviews-own-patches-group))
-        ('review-comment
-         (gnus-reviews-copy-to-group gnus-reviews-to-review-group)
-         (message "Copied review comment to %s" gnus-reviews-to-review-group))
-        ('patch
-         (let ((group (completing-read "Copy patch to: "
-                                       (list gnus-reviews-to-review-group
-                                             gnus-reviews-watching-group))))
-           (gnus-reviews-copy-to-group group)
-           (message "Copied patch to %s" group)))
-        ('other
-         (message "Article type: other (no automatic action)"))))))
+   (let* ((type (gnus-reviews-classify-message))
+          (default-group (pcase type
+                          ('own-patch gnus-reviews-own-patches-group)
+                          ('review-comment gnus-reviews-to-review-group)
+                          ('patch gnus-reviews-to-review-group)
+                          (_ gnus-reviews-to-review-group)))
+          (all-groups (list gnus-reviews-own-patches-group
+                            gnus-reviews-to-review-group
+                            gnus-reviews-watching-group
+                            gnus-reviews-finished-group)))
+     (list (completing-read
+            (format "Copy to group (default %s): " default-group)
+            all-groups nil t nil nil default-group))))
+  (gnus-summary-copy-article nil group)
+  (message "Copied article to %s" group))
 
 ;;;###autoload
 (defun gnus-reviews-increase-score ()
