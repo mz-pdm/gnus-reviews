@@ -229,8 +229,9 @@ where comment-plist is (:status status :content content :thread-id thread-id :ti
 (defun gnus-reviews--current-article-id ()
   "Get the Message-ID of the current article."
   (when (gnus-summary-article-number)
-    (gnus-with-article-buffer
-      (gnus-fetch-field "Message-ID"))))
+    (let ((header (gnus-summary-article-header)))
+      (when header
+        (mail-header-id header)))))
 
 (defun gnus-reviews--get-thread-id (article-id)
   "Get the thread ID for ARTICLE-ID.
