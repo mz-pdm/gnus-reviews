@@ -116,7 +116,8 @@ If nil, uses `user-full-name'."
 
 (defvar gnus-reviews-comment-database nil
   "Database of tracked review comments.
-Format: ((message-id . ((comment-id . (status content thread-id)) ...)) ...)")
+Format: ((message-id . ((comment-id . comment-plist) ...)) ...)
+where comment-plist is (:status status :content content :thread-id thread-id :timestamp timestamp :context context)")
 
 (defvar gnus-reviews--initialized nil
   "Non-nil if gnus-reviews has been initialized.")
@@ -410,33 +411,32 @@ Returns a list of (content start-pos end-pos context) for each comment."
 
       (nreverse comments))))
 
-(defun gnus-reviews-track-individual-comment (comment-text status comment-order &optional context position)
+(defun gnus-reviews-track-individual-comment (comment-text status comment-order &optional context)
   "Track an individual review comment.
 COMMENT-TEXT is the actual comment content.
 STATUS should be one of: `pending', `addressed', `dismissed'.
 COMMENT-ORDER is the sequential order of this comment within the article (1-based).
-CONTEXT is optional code context the comment refers to.
-POSITION is optional buffer position of the comment."
+CONTEXT is optional code context the comment refers to."
   (let* ((article-id (gnus-reviews--current-article-id))
          (thread-id (gnus-reviews--get-thread-id article-id))
          (comment-id (gnus-reviews--generate-comment-id article-id comment-order))
-         (comment-data (list status
-                             comment-text
-                             thread-id
-                             (current-time)
-                             context
-                             position)))
-    (when article-id
-      ;; Add to comment database
-      (let ((article-comments (assoc article-id gnus-reviews-comment-database)))
-        (if article-comments
-            (setcdr article-comments
-                    (cons (cons comment-id comment-data) (cdr article-comments)))
-          (push (cons article-id (list (cons comment-id comment-data)))
-                gnus-reviews-comment-database)))
-      ;; Save data
-      (gnus-reviews--save-data)
-      comment-id)))
+         (comment-data (list :status status
+                             :content comment-text
+                             :thread-id thread-id
+                             :timestamp (current-time)
+                             :context context)))
+    (unless article-id
+      (error "No article ID available - ensure there is a Gnus article buffer"))
+    ;; Add to comment database
+    (let ((article-comments (assoc article-id gnus-reviews-comment-database)))
+      (if article-comments
+          (setcdr article-comments
+                  (cons (cons comment-id comment-data) (cdr article-comments)))
+        (push (cons article-id (list (cons comment-id comment-data)))
+              gnus-reviews-comment-database)))
+    ;; Save data
+    (gnus-reviews--save-data)
+    comment-id))
 
 (defun gnus-reviews-get-comments-for-article (article-id)
   "Get all tracked comments for ARTICLE-ID."
@@ -448,7 +448,7 @@ POSITION is optional buffer position of the comment."
     (dolist (article-entry gnus-reviews-comment-database)
       (dolist (comment (cdr article-entry))
         (when (string= (car comment) comment-id)
-          (setcar (cdr comment) new-status)
+          (plist-put (cdr comment) :status new-status)
           (gnus-reviews--save-data)
           (throw 'found t))))))
 
@@ -457,10 +457,10 @@ POSITION is optional buffer position of the comment."
   (let (pending)
     (dolist (article-entry gnus-reviews-comment-database)
       (dolist (comment (cdr article-entry))
-        (when (eq (nth 1 comment) 'pending)
+        (when (eq (plist-get (cdr comment) :status) 'pending)
           (push (list (car comment)           ; comment-id
                       (car article-entry)     ; article-id
-                      (nth 1 comment))        ; status
+                      (plist-get (cdr comment) :status)) ; status
                 pending))))
     pending))
 
@@ -482,7 +482,7 @@ POSITION is optional buffer position of the comment."
            (series-comments '()))
       (dolist (article-entry gnus-reviews-comment-database)
         (dolist (comment (cdr article-entry))
-          (when (string= (nth 3 comment) thread-id)
+          (when (string= (plist-get (cdr comment) :thread-id) thread-id)
             (push (cons (car comment) comment) series-comments))))
       series-comments)))
 
@@ -490,7 +490,7 @@ POSITION is optional buffer position of the comment."
   "List pending comments for the current patch series only."
   (let* ((series-info (gnus-reviews--get-current-patch-series))
          (series-comments (gnus-reviews-get-series-comments series-info)))
-    (cl-remove-if-not (lambda (comment) (eq (nth 1 (cdr comment)) 'pending))
+    (cl-remove-if-not (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
                       series-comments)))
 
 ;;; Core Functions
@@ -567,7 +567,6 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
               (dolist (comment comments)
                 (let* ((text (nth 0 comment))
                        (context (nth 3 comment))
-                       (position (nth 1 comment))
                        (display-text (if context
                                          (format "Context: %s\nComment: %s"
                                                  context
@@ -577,7 +576,7 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
                                 (format "Status for comment: %s\n> " display-text)
                                 status-choices nil t)))
                   (unless (string= status "skip")
-                    (gnus-reviews-track-individual-comment text (intern status) comment-order context position)
+                    (gnus-reviews-track-individual-comment text (intern status) comment-order context)
                     (cl-incf tracked-count))
                   (cl-incf comment-order))))
             (gnus-reviews-increase-score)
@@ -598,7 +597,7 @@ STATUS should be one of: pending, addressed, dismissed."
                                             all-comments
                                             :from-end t)))
          (comment-id (gnus-reviews-track-individual-comment
-                      comment-text status-symbol comment-order nil start)))
+                      comment-text status-symbol comment-order nil)))
     (message "Tracked comment %s as %s: %s"
              comment-id status
              (substring comment-text 0 (min 50 (length comment-text))))))
@@ -614,11 +613,11 @@ STATUS should be one of: pending, addressed, dismissed."
                              (let ((article-comments (gnus-reviews-get-comments-for-article
                                                       (gnus-reviews--current-article-id))))
                                (cl-remove-if-not
-                                (lambda (comment) (eq (nth 1 comment) 'pending))
+                                (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
                                 article-comments)))))
     (if pending-comments
         (let* ((comment-choices (mapcar (lambda (comment)
-                                          (let ((content (nth 2 (cdr comment))))
+                                          (let ((content (plist-get (cdr comment) :content)))
                                             (cons (format "%s: %s"
                                                           (car comment)
                                                           (if content
@@ -644,10 +643,10 @@ STATUS should be one of: pending, addressed, dismissed."
                          (or (plist-get series-info :subject) "Unknown")))
           (princ "========================================\n\n")
           (dolist (comment series-comments)
-            (let ((status (nth 1 (cdr comment)))
-                  (content (nth 2 (cdr comment)))
-                  (context (nth 5 (cdr comment)))
-                  (timestamp (nth 4 (cdr comment))))
+            (let ((status (plist-get (cdr comment) :status))
+                  (content (plist-get (cdr comment) :content))
+                  (context (plist-get (cdr comment) :context))
+                  (timestamp (plist-get (cdr comment) :timestamp)))
               (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
                              (car comment) status
                              (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
@@ -670,10 +669,10 @@ STATUS should be one of: pending, addressed, dismissed."
           (princ (format "Individual comments for article: %s\n" article-id))
           (princ "==========================================\n\n")
           (dolist (comment comments)
-            (let ((status (nth 1 comment))
-                  (content (nth 2 comment))
-                  (context (nth 5 comment))
-                  (timestamp (nth 4 comment)))
+            (let ((status (plist-get (cdr comment) :status))
+                  (content (plist-get (cdr comment) :content))
+                  (context (plist-get (cdr comment) :context))
+                  (timestamp (plist-get (cdr comment) :timestamp)))
               (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
                              (car comment) status
                              (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
@@ -699,8 +698,8 @@ Keeps all pending comments regardless of age."
           (mapcar (lambda (article-entry)
                     (cons (car article-entry)
                           (cl-remove-if (lambda (comment)
-                                          (let ((comment-time (nth 4 comment))
-                                                (status (nth 1 comment)))
+                                          (let ((comment-time (plist-get (cdr comment) :timestamp))
+                                                (status (plist-get (cdr comment) :status)))
                                             (when (and comment-time
                                                        (time-less-p comment-time cutoff-time)
                                                        (memq status '(addressed dismissed)))
