@@ -167,12 +167,17 @@ Format: ((message-id . ((comment-id . (status content thread-id)) ...)) ...)")
 
 (defun gnus-reviews--ensure-groups ()
   "Ensure all review groups exist, creating them if necessary."
-  (mapc #'gnus-reviews--create-group
-        (list gnus-reviews-base-group
-              gnus-reviews-own-patches-group
-              gnus-reviews-to-review-group
-              gnus-reviews-watching-group
-              gnus-reviews-finished-group)))
+  (unless (and (boundp 'gnus-group-buffer)
+               gnus-group-buffer
+               (get-buffer gnus-group-buffer))
+    (error "Gnus group buffer is not available - ensure Gnus is running"))
+  (with-current-buffer gnus-group-buffer
+    (mapc #'gnus-reviews--create-group
+          (list gnus-reviews-base-group
+                gnus-reviews-own-patches-group
+                gnus-reviews-to-review-group
+                gnus-reviews-watching-group
+                gnus-reviews-finished-group))))
 
 ;;; Validation and Initialization Functions
 
