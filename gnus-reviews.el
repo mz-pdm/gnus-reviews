@@ -268,6 +268,29 @@ Uses In-Reply-To and References headers to determine thread membership."
       (or (and subject (gnus-reviews--match-patterns subject gnus-reviews-patch-patterns))
           (gnus-reviews--match-patterns content gnus-reviews-patch-patterns)))))
 
+(defun gnus-reviews-is-own-patch-email-p ()
+  "Return non-nil if current article is a patch by the user."
+  (gnus-with-article-buffer
+    (let ((from (gnus-fetch-field "From"))
+          (user-email (gnus-reviews--get-user-email))
+          (user-name (gnus-reviews--get-user-name)))
+      (and from
+           (or (and user-email (string-match (regexp-quote user-email) from))
+               (and user-name (string-match (regexp-quote user-name) from)))
+           (gnus-reviews-is-patch-email-p)))))
+
+(defun gnus-reviews-is-review-email-p ()
+  "Return non-nil if current article is a review email."
+  (gnus-with-article-buffer
+    (let ((subject (gnus-fetch-field "Subject"))
+          (content (buffer-string))
+          (in-reply-to (gnus-fetch-field "In-Reply-To")))
+      (and subject
+           (not (gnus-reviews-is-patch-email-p))
+           (or in-reply-to (string-match "^Re:" subject))
+           (or (gnus-reviews--match-patterns subject gnus-reviews-review-patterns)
+               (gnus-reviews--match-patterns content gnus-reviews-review-patterns))))))
+
 (defun gnus-reviews-extract-patch-info ()
   "Extract patch information from the current article.
 Returns a plist with :series-num, :series-total, :version, :subject."
@@ -301,29 +324,6 @@ Returns a plist with :series-num, :series-total, :version, :subject."
                 :series-total 1
                 :subject (string-trim (match-string 2 subject))
                 :rfc t)))))))
-
-(defun gnus-reviews-is-review-comment-p ()
-  "Return non-nil if current article is a review comment."
-  (gnus-with-article-buffer
-    (let ((subject (gnus-fetch-field "Subject"))
-          (content (buffer-string))
-          (in-reply-to (gnus-fetch-field "In-Reply-To")))
-      (and subject
-           (not (gnus-reviews-is-patch-email-p))
-           (or in-reply-to (string-match "^Re:" subject))
-           (or (gnus-reviews--match-patterns subject gnus-reviews-review-patterns)
-               (gnus-reviews--match-patterns content gnus-reviews-review-patterns))))))
-
-(defun gnus-reviews-is-own-patch-p ()
-  "Return non-nil if current article is a patch by the user."
-  (gnus-with-article-buffer
-    (let ((from (gnus-fetch-field "From"))
-          (user-email (gnus-reviews--get-user-email))
-          (user-name (gnus-reviews--get-user-name)))
-      (and from
-           (or (and user-email (string-match (regexp-quote user-email) from))
-               (and user-name (string-match (regexp-quote user-name) from)))
-           (gnus-reviews-is-patch-email-p)))))
 
 ;;; Comment Tracking System
 
@@ -468,9 +468,9 @@ POSITION is optional buffer position of the comment."
   "Classify the current message and return its type.
 Returns one of: `own-patch', `review-comment', `patch', `other'."
   (cond
-   ((and (gnus-reviews-is-patch-email-p) (gnus-reviews-is-own-patch-p))
+   ((and (gnus-reviews-is-patch-email-p) (gnus-reviews-is-own-patch-email-p))
     'own-patch)
-   ((gnus-reviews-is-review-comment-p)
+   ((gnus-reviews-is-review-email-p)
     'review-comment)
    ((gnus-reviews-is-patch-email-p)
     'patch)
@@ -517,7 +517,7 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
   "Increase score for the current review-related article."
   (interactive)
   (when (or (gnus-reviews-is-patch-email-p)
-            (gnus-reviews-is-review-comment-p))
+            (gnus-reviews-is-review-email-p))
     (gnus-summary-increase-score gnus-reviews-score-increase)
     (message "Increased score by %d" gnus-reviews-score-increase)))
 
@@ -525,7 +525,7 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
 (defun gnus-reviews-extract-and-track-comments ()
   "Extract individual comments from current article and assign status to each."
   (interactive)
-  (when (gnus-reviews-is-review-comment-p)
+  (when (gnus-reviews-is-review-email-p)
     (let ((comments (gnus-reviews--parse-individual-comments))
           (tracked-count 0)
           (status-choices '("pending" "addressed" "dismissed" "skip")))
