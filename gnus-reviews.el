@@ -350,11 +350,11 @@ Returns a list of (content start-pos end-pos context) for each comment."
 
         ;; Look for quoted code blocks followed by comments
         (while (re-search-forward "^> \\(.+\\)$" nil t)
-          (let ((quoted-line (match-string 1)))
+          (let ((quoted-line (match-string-no-properties 1)))
             ;; Look for commentary after quoted code
             (when (and (forward-line 1)
                        (looking-at "^\\([^>].*\\)$"))
-              (let ((comment-text (save-match-data (string-trim (match-string 1))))
+              (let ((comment-text (save-match-data (string-trim (match-string-no-properties 1))))
                     (comment-start (+ body-start (match-beginning 1)))
                     (comment-end (+ body-start (match-end 1))))
                 ;; Track all comments, even short ones like "LGTM", "Fix this"
@@ -369,7 +369,7 @@ Returns a list of (content start-pos end-pos context) for each comment."
         ;; Look for inline comments (non-quoted substantial lines)
         (goto-char (point-min))
         (while (re-search-forward "^\\([^>\n]\\{3,\\}.*\\)$" nil t)
-          (let ((comment-text (save-match-data (string-trim (match-string 1))))
+          (let ((comment-text (save-match-data (string-trim (match-string-no-properties 1))))
                 (comment-start (+ body-start (match-beginning 1)))
                 (comment-end (+ body-start (match-end 1))))
             ;; Exclude signature lines, headers, but include all actual comments
