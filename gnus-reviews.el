@@ -549,12 +549,33 @@ based on message classification but always asks for confirmation."
 
 ;;;###autoload
 (defun gnus-reviews-increase-score ()
-  "Increase score for the current review-related article."
+  "Increase score for the current review-related article subthread and subject.
+Temporarily boosts the score of all articles in the subthread starting from
+the current article and all articles with the same core subject (prefixes stripped)."
   (interactive)
   (when (or (gnus-reviews-is-patch-email-p)
             (gnus-reviews-is-review-email-p))
-    (gnus-summary-increase-score gnus-reviews-score-increase)
-    (message "Increased score by %d" gnus-reviews-score-increase)))
+    (let ((article-id (gnus-reviews--current-article-id))
+          (subject (gnus-with-article-buffer (gnus-fetch-field "Subject")))
+          (score gnus-reviews-score-increase)
+          (time (time-to-days (current-time)))
+          (parts '()))
+      ;; Score the subthread starting with current article
+      (when article-id
+        (gnus-summary-score-entry "thread" article-id 's score (current-time-string))
+        (push "subthread" parts))
+      ;; Score by cleaned subject (strip common prefixes)
+      (when subject
+        (let ((clean-subject (replace-regexp-in-string
+                              "^\\(\\(Re: \\|Fwd: \\)*\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*\\|\\(Re: \\|Fwd: \\)+\\)"
+                              "" subject)))
+          (when (> (length clean-subject) 0)
+            (gnus-summary-score-entry "subject" clean-subject 's score (current-time-string))
+            (push (format "subject '%s'" clean-subject) parts))))
+      ;; Refresh the summary and show single message
+      (gnus-summary-rescore)
+      (when parts
+        (message "Boosted %s score by %d" (string-join (nreverse parts) " and ") score)))))
 
 ;;;###autoload
 (defun gnus-reviews-extract-and-track-comments ()
