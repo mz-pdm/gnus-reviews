@@ -625,7 +625,11 @@ the current article and all articles with the same core subject (prefixes stripp
   "Mark the selected region as an individual comment.
 START and END define the region.
 STATUS should be one of: pending, addressed, dismissed."
-  (interactive "r\nsComment status (pending/addressed/dismissed): ")
+  (interactive (list (region-beginning)
+                     (region-end)
+                     (completing-read "Comment status: "
+                                      '("pending" "addressed" "dismissed")
+                                      nil t)))
   (let* ((status-symbol (intern status))
          (comment-text (buffer-substring-no-properties start end))
          (all-comments (gnus-reviews--parse-individual-comments))
