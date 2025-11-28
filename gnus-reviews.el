@@ -664,6 +664,33 @@ STATUS should be one of: pending, addressed, dismissed."
     (message "No pending comments found for this patch series")))
 
 ;;;###autoload
+(defun gnus-reviews-change-comment-status ()
+  "Change the status of a comment to an interactively selected value."
+  (interactive)
+  (if-let ((all-comments (gnus-reviews-get-series-comments
+                          (gnus-reviews--get-current-patch-series))))
+      (let* ((comment-choices (mapcar (lambda (comment)
+                                        (let* ((comment-data (cddr comment)) ; series comments have extra nesting
+                                               (content (plist-get comment-data :content))
+                                               (current-status (plist-get comment-data :status)))
+                                          (cons (format "%s [%s]: %s"
+                                                        (car comment)
+                                                        current-status
+                                                        (if content
+                                                            (substring content 0 (min 50 (length content)))
+                                                          "No content"))
+                                                (car comment))))
+                                      all-comments))
+             (choice (completing-read "Change status for comment: " comment-choices))
+             (comment-id (cdr (assoc choice comment-choices)))
+             (new-status (completing-read "New status: "
+                                         '("pending" "addressed" "dismissed")
+                                         nil t)))
+        (gnus-reviews-update-comment-status comment-id (intern new-status))
+        (message "Changed comment %s status to %s" comment-id new-status))
+    (message "No comments found for current context")))
+
+;;;###autoload
 (defun gnus-reviews-show-series-comments ()
   "Show all comments for the current patch series."
   (interactive)
