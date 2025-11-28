@@ -526,6 +526,16 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
 ;;; Public Interface
 
 ;;;###autoload
+(defun gnus-reviews-add-reviewed-by-tag ()
+  "Insert a 'Reviewed-by' tag with user's name and email at point."
+  (interactive)
+  (let ((name (gnus-reviews--get-user-name))
+        (email (gnus-reviews--get-user-email)))
+    (if (and name email)
+        (insert (format "Reviewed-by: %s <%s>\n" name email))
+      (message "User name or email not configured. See `gnus-reviews-user-name' and `gnus-reviews-user-email'."))))
+
+;;;###autoload
 (defun gnus-reviews-copy-to-group (&optional group)
   "Copy current article to GROUP.
 When called interactively, automatically suggests an appropriate group
