@@ -508,7 +508,7 @@ CONTEXT is optional code context the comment refers to."
   "List pending comments for the current patch series only."
   (let* ((series-info (gnus-reviews--get-current-patch-series))
          (series-comments (gnus-reviews-get-series-comments series-info)))
-    (cl-remove-if-not (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
+    (cl-remove-if-not (lambda (comment) (eq (plist-get (cddr comment) :status) 'pending))
                       series-comments)))
 
 ;;; Core Functions
@@ -654,11 +654,11 @@ STATUS should be one of: pending, addressed, dismissed."
                              (let ((article-comments (gnus-reviews-get-comments-for-article
                                                       (gnus-reviews--current-article-id))))
                                (cl-remove-if-not
-                                (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
+                                (lambda (comment) (eq (plist-get (cddr comment) :status) 'pending))
                                 article-comments)))))
     (if pending-comments
         (let* ((comment-choices (mapcar (lambda (comment)
-                                          (let ((content (plist-get (cdr comment) :content)))
+                                          (let ((content (plist-get (cddr comment) :content)))
                                             (cons (format "%s: %s"
                                                           (car comment)
                                                           (if content
