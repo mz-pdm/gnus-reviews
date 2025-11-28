@@ -251,10 +251,12 @@ where comment-plist is (:status status :content content :thread-id thread-id :ti
 
 (defun gnus-reviews--current-thread-id ()
   "Get the thread ID of the current article.
-Uses References headers to determine thread membership."
-  (when-let ((refs (gnus-reviews--article-header #'mail-header-references "References")))
-    (unless (equal refs "")
-      (car (split-string refs " ")))))
+Uses References headers to determine thread membership,
+falls back to Message-ID if no References header is available."
+  (or (when-let ((refs (gnus-reviews--article-header #'mail-header-references "References")))
+        (unless (equal refs "")
+          (car (split-string refs " "))))
+      (gnus-reviews--current-article-id)))
 
 ;;; Message Classification
 
