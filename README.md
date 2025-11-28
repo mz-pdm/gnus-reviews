@@ -2,6 +2,8 @@
 
 An Emacs Lisp package for managing email-based code reviews in Gnus.
 
+This is an AI experiment, the project is of AI-quality.
+
 ## Overview
 
 Gnus Reviews helps you organize and track email-based code review workflows. While designed with libcamera development in mind, it's generic and can be used with any project that uses email for code reviews.
