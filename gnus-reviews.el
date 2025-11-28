@@ -647,30 +647,21 @@ STATUS should be one of: pending, addressed, dismissed."
 (defun gnus-reviews-mark-comment-addressed ()
   "Mark a comment as addressed, considering current patch series context."
   (interactive)
-  (let* ((series-comments (gnus-reviews-list-pending-comments-for-series))
-         (pending-comments (if series-comments
-                               series-comments
-                             ;; Fall back to article-specific comments
-                             (let ((article-comments (gnus-reviews-get-comments-for-article
-                                                      (gnus-reviews--current-article-id))))
-                               (cl-remove-if-not
-                                (lambda (comment) (eq (plist-get (cddr comment) :status) 'pending))
-                                article-comments)))))
-    (if pending-comments
-        (let* ((comment-choices (mapcar (lambda (comment)
-                                          (let ((content (plist-get (cddr comment) :content)))
-                                            (cons (format "%s: %s"
-                                                          (car comment)
-                                                          (if content
-                                                              (substring content 0 (min 50 (length content)))
-                                                            "No content"))
-                                                  (car comment))))
-                                        pending-comments))
-               (choice (completing-read "Mark comment as addressed: " comment-choices))
-               (comment-id (cdr (assoc choice comment-choices))))
-          (gnus-reviews-update-comment-status comment-id 'addressed)
-          (message "Marked comment %s as addressed" comment-id))
-      (message "No pending comments found for this patch series"))))
+  (if-let ((pending-comments (gnus-reviews-list-pending-comments-for-series)))
+      (let* ((comment-choices (mapcar (lambda (comment)
+                                        (let ((content (plist-get (cddr comment) :content)))
+                                          (cons (format "%s: %s"
+                                                        (car comment)
+                                                        (if content
+                                                            (substring content 0 (min 50 (length content)))
+                                                          "No content"))
+                                                (car comment))))
+                                      pending-comments))
+             (choice (completing-read "Mark comment as addressed: " comment-choices))
+             (comment-id (cdr (assoc choice comment-choices))))
+        (gnus-reviews-update-comment-status comment-id 'addressed)
+        (message "Marked comment %s as addressed" comment-id))
+    (message "No pending comments found for this patch series")))
 
 ;;;###autoload
 (defun gnus-reviews-show-series-comments ()
