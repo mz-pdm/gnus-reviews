@@ -680,10 +680,10 @@ STATUS should be one of: pending, addressed, dismissed."
                          (or (plist-get series-info :subject) "Unknown")))
           (princ "========================================\n\n")
           (dolist (comment series-comments)
-            (let ((status (plist-get (cdr comment) :status))
-                  (content (plist-get (cdr comment) :content))
-                  (context (plist-get (cdr comment) :context))
-                  (timestamp (plist-get (cdr comment) :timestamp)))
+            (let ((status (plist-get (cddr comment) :status))
+                  (content (plist-get (cddr comment) :content))
+                  (context (plist-get (cddr comment) :context))
+                  (timestamp (plist-get (cddr comment) :timestamp)))
               (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
                              (car comment) status
                              (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
