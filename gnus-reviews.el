@@ -117,7 +117,8 @@ If nil, uses `user-full-name'."
 (defvar gnus-reviews-comment-database nil
   "Database of tracked review comments.
 Format: ((message-id . ((comment-id . comment-plist) ...)) ...)
-where comment-plist is (:status status :content content :thread-id thread-id :timestamp timestamp :context context)")
+where comment-plist is
+(:status status :content content :thread-id thread-id :timestamp timestamp :context context)")
 
 ;;; Data Persistence Functions
 
@@ -499,7 +500,7 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
 
 ;;;###autoload
 (defun gnus-reviews-add-reviewed-by-tag ()
-  "Insert a 'Reviewed-by' tag with user's name and email at point."
+  "Insert a Reviewed-by tag with user's name and email at point."
   (interactive)
   (let ((name (gnus-reviews--get-user-name))
         (email (gnus-reviews--get-user-email)))
@@ -541,7 +542,6 @@ the current article and all articles with the same core subject (prefixes stripp
     (let ((article-id (gnus-reviews--current-article-id))
           (subject (gnus-with-article-buffer (gnus-fetch-field "Subject")))
           (score gnus-reviews-score-increase)
-          (time (time-to-days (current-time)))
           (parts '()))
       ;; Score the subthread starting with current article
       (when article-id
