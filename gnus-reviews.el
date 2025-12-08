@@ -431,15 +431,12 @@ CONTEXT is optional code context the comment refers to."
   "Get all tracked comments for ARTICLE-ID."
   (cdr (assoc article-id (gnus-reviews--comments))))
 
-(defun gnus-reviews-update-comment-status (comment-id new-status)
-  "Update the status of COMMENT-ID to NEW-STATUS."
-  (catch 'found
-    (dolist (article-entry (gnus-reviews--comments))
-      (dolist (comment (cdr article-entry))
-        (when (string= (car comment) comment-id)
-          (plist-put (cdr comment) :status new-status)
-          (gnus-reviews--save-data)
-          (throw 'found t))))))
+(defun gnus-reviews-update-comment-status (article-id comment-id new-status)
+  "Update the status of COMMENT-ID in ARTICLE-ID to NEW-STATUS."
+  (when-let ((comment (cl-find-if (lambda (c) (string= (car c) comment-id))
+                                  (gnus-reviews-get-comments-for-article article-id))))
+    (plist-put (cdr comment) :status new-status)
+    (gnus-reviews--save-data)))
 
 (defun gnus-reviews-list-pending-comments ()
   "List all pending comments across all articles."
@@ -630,7 +627,8 @@ STATUS should be one of: pending, addressed, dismissed."
                                       pending-comments))
              (choice (completing-read "Mark comment as addressed: " comment-choices))
              (comment-id (cdr (assoc choice comment-choices))))
-        (gnus-reviews-update-comment-status comment-id 'addressed)
+        (gnus-reviews-update-comment-status
+         (car (split-string comment-id "#")) comment-id 'addressed)
         (message "Marked comment %s as addressed" comment-id))
     (message "No pending comments found for this patch series")))
 
@@ -657,7 +655,8 @@ STATUS should be one of: pending, addressed, dismissed."
              (new-status (completing-read "New status: "
                                          '("pending" "addressed" "dismissed")
                                          nil t)))
-        (gnus-reviews-update-comment-status comment-id (intern new-status))
+        (gnus-reviews-update-comment-status
+         (car (split-string comment-id "#")) comment-id (intern new-status))
         (message "Changed comment %s status to %s" comment-id new-status))
     (message "No comments found for current context")))
 
