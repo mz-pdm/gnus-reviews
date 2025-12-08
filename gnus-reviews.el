@@ -277,26 +277,58 @@ Returns a plist with :series-num, :series-total, :version, :subject."
       (when subject
         (cond
          ;; PATCH series with version and series numbers
-         ((string-match "\\[PATCH\\(?:\\s-+v\\([0-9]+\\)\\)?\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
+         ((string-match (rx "["
+                            "PATCH"
+                            (optional (seq (+ whitespace) "v" (group (+ digit))))
+                            (+ whitespace)
+                            (group (+ digit))
+                            "/"
+                            (group (+ digit))
+                            "]"
+                            (* whitespace)
+                            (group (* anything)))
+                        subject)
           (list :version (match-string 1 subject)
                 :series-num (string-to-number (match-string 2 subject))
                 :series-total (string-to-number (match-string 3 subject))
                 :subject (string-trim (match-string 4 subject))))
          ;; RFC series with version and series numbers
-         ((string-match "\\[RFC\\(?:\\s-+v\\([0-9]+\\)\\)?\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
+         ((string-match (rx "["
+                            "RFC"
+                            (optional (seq (+ whitespace) "v" (group (+ digit))))
+                            (+ whitespace)
+                            (group (+ digit))
+                            "/"
+                            (group (+ digit))
+                            "]"
+                            (* whitespace)
+                            (group (* anything)))
+                        subject)
           (list :version (match-string 1 subject)
                 :series-num (string-to-number (match-string 2 subject))
                 :series-total (string-to-number (match-string 3 subject))
                 :subject (string-trim (match-string 4 subject))
                 :rfc t))
          ;; Single PATCH with version
-         ((string-match "\\[PATCH\\(?:\\s-+v\\([0-9]+\\)\\)?\\]\\s-*\\(.*\\)" subject)
+         ((string-match (rx "["
+                            "PATCH"
+                            (optional (seq (+ whitespace) "v" (group (+ digit))))
+                            "]"
+                            (* whitespace)
+                            (group (* anything)))
+                        subject)
           (list :version (match-string 1 subject)
                 :series-num 1
                 :series-total 1
                 :subject (string-trim (match-string 2 subject))))
          ;; Single RFC with version
-         ((string-match "\\[RFC\\(?:\\s-+v\\([0-9]+\\)\\)?\\]\\s-*\\(.*\\)" subject)
+         ((string-match (rx "["
+                            "RFC"
+                            (optional (seq (+ whitespace) "v" (group (+ digit))))
+                            "]"
+                            (* whitespace)
+                            (group (* anything)))
+                        subject)
           (list :version (match-string 1 subject)
                 :series-num 1
                 :series-total 1
