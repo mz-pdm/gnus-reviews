@@ -295,6 +295,7 @@ Returns a plist with :series-num, :series-total, :version, :subject."
          ;; RFC series with version and series numbers
          ((string-match (rx "["
                             "RFC"
+                            (optional (seq (+ whitespace) "PATCH"))
                             (optional (seq (+ whitespace) "v" (group (+ digit))))
                             (+ whitespace)
                             (group (+ digit))
@@ -324,6 +325,7 @@ Returns a plist with :series-num, :series-total, :version, :subject."
          ;; Single RFC with version
          ((string-match (rx "["
                             "RFC"
+                            (optional (seq (+ whitespace) "PATCH"))
                             (optional (seq (+ whitespace) "v" (group (+ digit))))
                             "]"
                             (* whitespace)
