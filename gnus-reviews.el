@@ -659,9 +659,11 @@ the current article and all articles with the same core subject (prefixes stripp
   "Extract individual comments from current article and assign status to each."
   (interactive)
   (when (gnus-reviews-is-review-email-p)
-    (let ((comments (gnus-reviews--parse-individual-comments))
-          (tracked-count 0)
-          (status-choices '("pending" "addressed" "dismissed" "skip")))
+    (let* ((comments (gnus-reviews--parse-individual-comments))
+           (tracked-count 0)
+           (status-choices '("pending" "addressed" "dismissed" "skip"))
+           (article-id (gnus-reviews--current-article-id))
+           (existing-comments (gnus-reviews-get-comments-for-article article-id)))
       (if comments
           (progn
             (message "Found %d individual comments to process..." (length comments))
@@ -674,12 +676,29 @@ the current article and all articles with the same core subject (prefixes stripp
                                                  context
                                                  (substring text 0 (min 100 (length text))))
                                        (substring text 0 (min 100 (length text)))))
-                       (status (completing-read
-                                (format "Status for comment: %s\n> " display-text)
-                                status-choices nil t)))
+                       ;; Check if this comment already exists in the database
+                       (existing-comment (cl-find-if
+                                          (lambda (c) (string= (plist-get (cdr c) :content) text))
+                                          existing-comments))
+                       (existing-status (when existing-comment
+                                          (plist-get (cdr existing-comment) :status)))
+                       (default-status (when existing-status
+                                         (symbol-name existing-status)))
+                       (prompt-text (if existing-status
+                                        (format "Status for comment [EXISTING: %s]: %s\n> "
+                                                existing-status display-text)
+                                      (format "Status for comment: %s\n> " display-text)))
+                       (status (completing-read prompt-text status-choices nil t nil nil default-status)))
                   (unless (string= status "skip")
-                    (gnus-reviews-track-individual-comment text (intern status) comment-order context)
-                    (cl-incf tracked-count))
+                    (if existing-comment
+                        ;; Update existing comment status if it changed
+                        (let ((new-status (intern status)))
+                          (unless (eq existing-status new-status)
+                            (gnus-reviews-update-comment-status article-id (car existing-comment) new-status)
+                            (cl-incf tracked-count)))
+                      ;; Track new comment
+                      (gnus-reviews-track-individual-comment text (intern status) comment-order context)
+                      (cl-incf tracked-count)))
                   (cl-incf comment-order))))
             (gnus-reviews-increase-score)
             (message "Tracked %d individual comments" tracked-count))
