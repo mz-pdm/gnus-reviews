@@ -529,6 +529,46 @@ based on message classification but always asks for confirmation."
   (message "Copied article to %s" group))
 
 ;;;###autoload
+(defun gnus-reviews-watch-thread ()
+  "Watch the current thread by copying all thread articles to watching group.
+Also increases the score for the thread to boost visibility."
+  (interactive)
+  (gnus-reviews--ensure-groups)
+  (let ((copied-count 0)
+        (thread-articles '())
+        (current-article (gnus-summary-article-number)))
+    ;; Get all articles in the current thread
+    (when current-article
+      (save-excursion
+        ;; Move to the thread root
+        (gnus-summary-refer-thread)
+        (gnus-summary-top-thread)
+        ;; Collect all thread articles
+        (let ((start-point (point)))
+          (gnus-summary-down-thread 999999) ; Go to end of thread
+          (let ((end-point (point)))
+            ;; Go back to start and collect all article numbers
+            (goto-char start-point)
+            (while (<= (point) end-point)
+              (when-let ((article-num (gnus-summary-article-number)))
+                (push article-num thread-articles))
+              (forward-line 1))))))
+    ;; Copy each article in the thread to watching group
+    (when thread-articles
+      (dolist (article-num (nreverse thread-articles))
+        (when (gnus-summary-goto-article article-num)
+          ;; Tick the article before copying to preserve the tick status
+          (gnus-summary-mark-article nil gnus-ticked-mark)
+          (gnus-summary-copy-article nil gnus-reviews-watching-group)
+          (cl-incf copied-count))))
+    ;; Return to original article and increase score
+    (when current-article
+      (gnus-summary-goto-article current-article)
+      (gnus-reviews-increase-score))
+    (message "Watched thread: copied %d articles to %s"
+             copied-count gnus-reviews-watching-group)))
+
+;;;###autoload
 (defun gnus-reviews-increase-score ()
   "Increase score for the current review-related article subthread and subject.
 Temporarily boosts the score of all articles in the subthread starting from
