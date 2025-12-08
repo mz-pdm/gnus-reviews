@@ -156,14 +156,8 @@ where comment-plist is
   (when (and gnus-reviews-auto-create-groups
              group
              (not (gnus-reviews--group-exists-p group)))
-    (condition-case err
-        (progn
-          (gnus-group-make-group (gnus-group-short-name group) "nnml" "")
-          (message "Created review group: %s" group)
-          t)
-      (error
-       (message "Error creating group %s: %s" group (error-message-string err))
-       nil))))
+    (gnus-group-make-group (gnus-group-short-name group) "nnml" "")
+    (message "Created review group: %s" group)))
 
 (defun gnus-reviews--ensure-groups ()
   "Ensure all review groups exist, creating them if necessary."
