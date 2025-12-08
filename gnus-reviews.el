@@ -515,6 +515,42 @@ Returns one of: `own-patch', `review-comment', `patch', `other'."
 
 ;;; Public Interface
 
+(defun gnus-reviews--display-comment (comment-id comment-data &optional content-limit)
+  "Display a single comment with formatted output.
+COMMENT-ID is the comment identifier.
+COMMENT-DATA is the comment property list.
+CONTENT-LIMIT is the maximum number of characters to show from content (default 200)."
+  (let ((status (plist-get comment-data :status))
+        (content (plist-get comment-data :content))
+        (context (plist-get comment-data :context))
+        (timestamp (plist-get comment-data :timestamp))
+        (limit (or content-limit 200)))
+    (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
+                   comment-id status
+                   (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
+    (when context
+      (princ (format "Context: %s\n" context)))
+    (princ (format "Comment: %s\n\n"
+                   (if content
+                       (substring content 0 (min limit (length content)))
+                     "No content")))))
+
+(defun gnus-reviews--display-comment-list (buffer-name title comments &optional content-limit)
+  "Display a list of comments in a temporary buffer.
+BUFFER-NAME is the name of the buffer to create.
+TITLE is the header text to display.
+COMMENTS is the list of comments to display.
+CONTENT-LIMIT is optional maximum characters to show from each comment."
+  (with-output-to-temp-buffer buffer-name
+    (princ (format "%s\n" title))
+    (princ (make-string (length title) ?=))
+    (princ "\n\n")
+    (dolist (comment comments)
+      (gnus-reviews--display-comment
+       (car comment)
+       (cdr comment)
+       content-limit))))
+
 ;;;###autoload
 (defun gnus-reviews-add-reviewed-by-tag ()
   "Insert a Reviewed-by tag with user's name and email at point."
@@ -783,24 +819,11 @@ STATUS should be one of: pending, addressed, dismissed."
   (let* ((series-info (gnus-reviews--get-current-patch-series))
          (series-comments (gnus-reviews-get-series-comments series-info)))
     (if series-comments
-        (with-output-to-temp-buffer "*Gnus Reviews: Series Comments*"
-          (princ (format "Comments for patch series: %s\n"
-                         (or (plist-get series-info :subject) "Unknown")))
-          (princ "========================================\n\n")
-          (dolist (comment series-comments)
-            (let ((status (plist-get (cddr comment) :status))
-                  (content (plist-get (cddr comment) :content))
-                  (context (plist-get (cddr comment) :context))
-                  (timestamp (plist-get (cddr comment) :timestamp)))
-              (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
-                             (car comment) status
-                             (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
-              (when context
-                (princ (format "Context: %s\n" context)))
-              (princ (format "Comment: %s\n\n"
-                             (if content
-                                 (substring content 0 (min 200 (length content)))
-                               "No content"))))))
+        (gnus-reviews--display-comment-list
+         "*Gnus Reviews: Series Comments*"
+         (format "Comments for patch series: %s"
+                 (or (plist-get series-info :subject) "Unknown"))
+         (mapcar #'cdr series-comments) 200)
       (message "No comments found for current patch series"))))
 
 ;;;###autoload
@@ -810,24 +833,11 @@ STATUS should be one of: pending, addressed, dismissed."
   (let* ((series-info (gnus-reviews--get-current-patch-series))
          (pending-comments (gnus-reviews-list-pending-comments-for-series)))
     (if pending-comments
-        (with-output-to-temp-buffer "*Gnus Reviews: Pending Series Comments*"
-          (princ (format "Pending comments for patch series: %s\n"
-                         (or (plist-get series-info :subject) "Unknown")))
-          (princ "=============================================\n\n")
-          (dolist (comment pending-comments)
-            (let ((status (plist-get (cddr comment) :status))
-                  (content (plist-get (cddr comment) :content))
-                  (context (plist-get (cddr comment) :context))
-                  (timestamp (plist-get (cddr comment) :timestamp)))
-              (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
-                             (car comment) status
-                             (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
-              (when context
-                (princ (format "Context: %s\n" context)))
-              (princ (format "Comment: %s\n\n"
-                             (if content
-                                 (substring content 0 (min 200 (length content)))
-                               "No content"))))))
+        (gnus-reviews--display-comment-list
+         "*Gnus Reviews: Pending Series Comments*"
+         (format "Pending comments for patch series: %s"
+                 (or (plist-get series-info :subject) "Unknown"))
+         (mapcar #'cdr pending-comments) 200)
       (message "No pending comments found for current patch series"))))
 
 ;;;###autoload
@@ -837,23 +847,10 @@ STATUS should be one of: pending, addressed, dismissed."
   (let* ((article-id (gnus-reviews--current-article-id))
          (comments (gnus-reviews-get-comments-for-article article-id)))
     (if comments
-        (with-output-to-temp-buffer "*Gnus Reviews: Article Comments*"
-          (princ (format "Individual comments for article: %s\n" article-id))
-          (princ "==========================================\n\n")
-          (dolist (comment comments)
-            (let ((status (plist-get (cdr comment) :status))
-                  (content (plist-get (cdr comment) :content))
-                  (context (plist-get (cdr comment) :context))
-                  (timestamp (plist-get (cdr comment) :timestamp)))
-              (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
-                             (car comment) status
-                             (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
-              (when context
-                (princ (format "Context: %s\n" context)))
-              (princ (format "Comment: %s\n\n"
-                             (if content
-                                 (substring content 0 (min 300 (length content)))
-                               "No content"))))))
+        (gnus-reviews--display-comment-list
+         "*Gnus Reviews: Article Comments*"
+         (format "Individual comments for article: %s" article-id)
+         comments 300)
       (message "No individual comments found for current article"))))
 
 ;;;###autoload
