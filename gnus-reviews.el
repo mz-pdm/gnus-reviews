@@ -569,6 +569,43 @@ Also increases the score for the thread to boost visibility."
              copied-count gnus-reviews-watching-group)))
 
 ;;;###autoload
+(defun gnus-reviews-process-my-patch-review ()
+  "Process a review of your own patch.
+Extracts and tracks individual comments, ticks the article if there are
+pending comments, and copies it to the own patches group for follow-up."
+  (interactive)
+  (unless (gnus-reviews-is-review-email-p)
+    (error "Current article is not a review email"))
+  (gnus-reviews--ensure-groups)
+  ;; Extract and track comments from the review
+  (gnus-reviews-extract-and-track-comments)
+  ;; Increase score for the subthread to boost visibility
+  (gnus-reviews-increase-score)
+  ;; Check for pending comments and tick only if found
+  (let* ((article-id (gnus-reviews--current-article-id))
+         (tracked-comments (gnus-reviews-get-comments-for-article article-id))
+         (pending-count (cl-count-if (lambda (comment)
+                                      (eq (plist-get (cdr comment) :status) 'pending))
+                                    tracked-comments))
+         (total-count (length tracked-comments)))
+    ;; Tick the article only if there are pending comments
+    (when (> pending-count 0)
+      (gnus-summary-mark-article nil gnus-ticked-mark))
+    ;; Copy to own patches group
+    (gnus-summary-copy-article nil gnus-reviews-own-patches-group)
+    ;; Show feedback about what was processed
+    (cond
+     ((> pending-count 0)
+      (message "Processed patch review: %d pending comments (of %d total), ticked and copied to %s"
+               pending-count total-count gnus-reviews-own-patches-group))
+     ((> total-count 0)
+      (message "Processed patch review: %d comments tracked (none pending), copied to %s"
+               total-count gnus-reviews-own-patches-group))
+     (t
+      (message "Processed patch review: no comments found, copied to %s"
+               gnus-reviews-own-patches-group)))))
+
+;;;###autoload
 (defun gnus-reviews-increase-score ()
   "Increase score for the current review-related article subthread and subject.
 Temporarily boosts the score of all articles in the subthread starting from
