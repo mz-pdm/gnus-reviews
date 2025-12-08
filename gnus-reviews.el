@@ -804,6 +804,33 @@ STATUS should be one of: pending, addressed, dismissed."
       (message "No comments found for current patch series"))))
 
 ;;;###autoload
+(defun gnus-reviews-show-pending-series-comments ()
+  "Show only pending comments for the current patch series."
+  (interactive)
+  (let* ((series-info (gnus-reviews--get-current-patch-series))
+         (pending-comments (gnus-reviews-list-pending-comments-for-series)))
+    (if pending-comments
+        (with-output-to-temp-buffer "*Gnus Reviews: Pending Series Comments*"
+          (princ (format "Pending comments for patch series: %s\n"
+                         (or (plist-get series-info :subject) "Unknown")))
+          (princ "=============================================\n\n")
+          (dolist (comment pending-comments)
+            (let ((status (plist-get (cddr comment) :status))
+                  (content (plist-get (cddr comment) :content))
+                  (context (plist-get (cddr comment) :context))
+                  (timestamp (plist-get (cddr comment) :timestamp)))
+              (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
+                             (car comment) status
+                             (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
+              (when context
+                (princ (format "Context: %s\n" context)))
+              (princ (format "Comment: %s\n\n"
+                             (if content
+                                 (substring content 0 (min 200 (length content)))
+                               "No content"))))))
+      (message "No pending comments found for current patch series"))))
+
+;;;###autoload
 (defun gnus-reviews-show-article-comments ()
   "Show all individual comments for the current article."
   (interactive)
