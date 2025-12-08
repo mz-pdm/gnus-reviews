@@ -596,19 +596,37 @@ Also increases the score for the thread to boost visibility."
     ;; Get all articles in the current thread
     (when current-article
       (save-excursion
-        ;; Move to the thread root
+        ;; Move to the thread root to ensure we get the whole thread
         (gnus-summary-refer-thread)
         (gnus-summary-top-thread)
-        ;; Collect all thread articles
-        (let ((start-point (point)))
-          (gnus-summary-down-thread 999999) ; Go to end of thread
-          (let ((end-point (point)))
-            ;; Go back to start and collect all article numbers
-            (goto-char start-point)
-            (while (<= (point) end-point)
-              (when-let ((article-num (gnus-summary-article-number)))
-                (push article-num thread-articles))
-              (forward-line 1))))))
+        ;; Collect all articles in the entire thread (including siblings)
+        (let ((thread-root (gnus-summary-article-number))
+              (visited (make-hash-table :test 'equal)))
+          ;; Add the root article
+          (push thread-root thread-articles)
+          (puthash thread-root t visited)
+          ;; Navigate through the entire thread structure
+          (gnus-summary-goto-article thread-root)
+          (let ((start-pos (point)))
+            ;; Move to next thread to find the boundary
+            (if (= (gnus-summary-next-thread 1) 0)
+                (let ((end-pos (point)))
+                  ;; Go back to start and collect all articles until next thread
+                  (goto-char start-pos)
+                  (while (< (point) end-pos)
+                    (when-let ((article-num (gnus-summary-article-number)))
+                      (unless (gethash article-num visited)
+                        (push article-num thread-articles)
+                        (puthash article-num t visited)))
+                    (forward-line 1)))
+              ;; If no next thread, go to end of buffer
+              (goto-char start-pos)
+              (while (not (eobp))
+                (when-let ((article-num (gnus-summary-article-number)))
+                  (unless (gethash article-num visited)
+                    (push article-num thread-articles)
+                    (puthash article-num t visited)))
+                (forward-line 1)))))))
     ;; Copy each article in the thread to watching group
     (when thread-articles
       (dolist (article-num (nreverse thread-articles))
@@ -660,6 +678,67 @@ pending comments, and copies it to the own patches group for follow-up."
      (t
       (message "Processed patch review: no comments found, copied to %s"
                gnus-reviews-own-patches-group)))))
+
+;;;###autoload
+(defun gnus-reviews-copy-my-patch-series ()
+  "Copy the entire current patch series to own patches group.
+Ticks all articles in the series, copies them to own patches group,
+and increases score for better visibility. Use this when you want to
+track your own patch series without processing review comments."
+  (interactive)
+  (gnus-reviews--ensure-groups)
+  (let ((copied-count 0)
+        (thread-articles '())
+        (current-article (gnus-summary-article-number)))
+    ;; Get all articles in the current thread
+    (when current-article
+      (save-excursion
+        ;; Move to the thread root to ensure we get the whole thread
+        (gnus-summary-refer-thread)
+        (gnus-summary-top-thread)
+        ;; Collect all articles in the entire thread (including siblings)
+        (let ((thread-root (gnus-summary-article-number))
+              (visited (make-hash-table :test 'equal)))
+          ;; Add the root article
+          (push thread-root thread-articles)
+          (puthash thread-root t visited)
+          ;; Navigate through the entire thread structure
+          (gnus-summary-goto-article thread-root)
+          (let ((start-pos (point)))
+            ;; Move to next thread to find the boundary
+            (if (= (gnus-summary-next-thread 1) 0)
+                (let ((end-pos (point)))
+                  ;; Go back to start and collect all articles until next thread
+                  (goto-char start-pos)
+                  (while (< (point) end-pos)
+                    (when-let ((article-num (gnus-summary-article-number)))
+                      (unless (gethash article-num visited)
+                        (push article-num thread-articles)
+                        (puthash article-num t visited)))
+                    (forward-line 1)))
+              ;; If no next thread, go to end of buffer
+              (goto-char start-pos)
+              (while (not (eobp))
+                (when-let ((article-num (gnus-summary-article-number)))
+                  (unless (gethash article-num visited)
+                    (push article-num thread-articles)
+                    (puthash article-num t visited)))
+                (forward-line 1))))
+          ;; Increase score for the whole series thread (go to root first)
+          (gnus-summary-goto-article thread-root)
+          (gnus-reviews-increase-score))))
+    ;; Copy each article in the thread to own patches group
+    (when thread-articles
+      (dolist (article-num (nreverse thread-articles))
+        (when (gnus-summary-goto-article article-num)
+          ;; Tick the article before copying to preserve the tick status
+          (gnus-summary-mark-article nil gnus-ticked-mark)
+          (gnus-summary-copy-article nil gnus-reviews-own-patches-group)
+          (cl-incf copied-count))))
+    (when current-article
+      (gnus-summary-goto-article current-article))
+    (message "Copied patch series: %d articles ticked and copied to %s"
+             copied-count gnus-reviews-own-patches-group)))
 
 ;;;###autoload
 (defun gnus-reviews-increase-score ()
