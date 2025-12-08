@@ -119,9 +119,6 @@ If nil, uses `user-full-name'."
 Format: ((message-id . ((comment-id . comment-plist) ...)) ...)
 where comment-plist is (:status status :content content :thread-id thread-id :timestamp timestamp :context context)")
 
-(defvar gnus-reviews--initialized nil
-  "Non-nil if gnus-reviews has been initialized.")
-
 ;;; Data Persistence Functions
 
 (defun gnus-reviews--save-data ()
@@ -145,6 +142,15 @@ where comment-plist is (:status status :content content :thread-id thread-id :ti
       (error
        (message "Error loading gnus-reviews data: %s" (error-message-string err))
        (setq gnus-reviews-comment-database nil)))))
+
+(defun gnus-reviews--comments ()
+  (unless gnus-reviews-comment-database
+    (gnus-reviews--load-data))
+  gnus-reviews-comment-database)
+
+(defun gnus-reviews--store-comments (comments)
+  (setq gnus-reviews-comment-database comments)
+  (gnus-reviews--save-data))
 
 ;;; Group Management Functions
 
@@ -182,28 +188,6 @@ where comment-plist is (:status status :content content :thread-id thread-id :ti
 
 ;;; Validation and Initialization Functions
 
-(defun gnus-reviews--validate-config ()
-  "Validate the current configuration."
-  (let ((errors '()))
-    ;; Check if required groups are configured
-    (dolist (var '(gnus-reviews-own-patches-group
-                   gnus-reviews-to-review-group
-                   gnus-reviews-watching-group
-                   gnus-reviews-finished-group))
-      (unless (and (boundp var) (symbol-value var) (stringp (symbol-value var)))
-        (push (format "%s is not properly configured" var) errors)))
-
-    ;; Check if Gnus is available
-    (unless (featurep 'gnus)
-      (push "Gnus is not available" errors))
-
-    ;; Return validation results
-    (if errors
-        (progn
-          (message "Gnus-reviews configuration errors: %s" (string-join errors "; "))
-          nil)
-      t)))
-
 (defun gnus-reviews--get-user-email ()
   "Get the user's email address for patch identification."
   (or gnus-reviews-user-email user-mail-address))
@@ -211,18 +195,6 @@ where comment-plist is (:status status :content content :thread-id thread-id :ti
 (defun gnus-reviews--get-user-name ()
   "Get the user's full name for patch identification."
   (or gnus-reviews-user-name user-full-name))
-
-;;;###autoload
-(defun gnus-reviews-initialize ()
-  "Initialize the gnus-reviews package."
-  (interactive)
-  (unless gnus-reviews--initialized
-    (when (gnus-reviews--validate-config)
-      (gnus-reviews--load-data)
-      (gnus-reviews--ensure-groups)
-      (add-hook 'kill-emacs-hook #'gnus-reviews--save-data)
-      (setq gnus-reviews--initialized t)
-      (message "Gnus Reviews initialized successfully"))))
 
 ;;; Utility Functions
 
@@ -446,24 +418,22 @@ CONTEXT is optional code context the comment refers to."
     (unless article-id
       (error "No article ID available - ensure there is a Gnus article buffer"))
     ;; Add to comment database
-    (let ((article-comments (assoc article-id gnus-reviews-comment-database)))
+    (let ((article-comments (assoc article-id (gnus-reviews--comments))))
       (if article-comments
           (setcdr article-comments
                   (cons (cons comment-id comment-data) (cdr article-comments)))
-        (push (cons article-id (list (cons comment-id comment-data)))
-              gnus-reviews-comment-database)))
-    ;; Save data
-    (gnus-reviews--save-data)
+        (gnus-reviews--store-comments (cons (cons article-id (list (cons comment-id comment-data)))
+                                            (gnus-reviews--comments)))))
     comment-id))
 
 (defun gnus-reviews-get-comments-for-article (article-id)
   "Get all tracked comments for ARTICLE-ID."
-  (cdr (assoc article-id gnus-reviews-comment-database)))
+  (cdr (assoc article-id (gnus-reviews--comments))))
 
 (defun gnus-reviews-update-comment-status (comment-id new-status)
   "Update the status of COMMENT-ID to NEW-STATUS."
   (catch 'found
-    (dolist (article-entry gnus-reviews-comment-database)
+    (dolist (article-entry (gnus-reviews--comments))
       (dolist (comment (cdr article-entry))
         (when (string= (car comment) comment-id)
           (plist-put (cdr comment) :status new-status)
@@ -473,7 +443,7 @@ CONTEXT is optional code context the comment refers to."
 (defun gnus-reviews-list-pending-comments ()
   "List all pending comments across all articles."
   (let (pending)
-    (dolist (article-entry gnus-reviews-comment-database)
+    (dolist (article-entry (gnus-reviews--comments))
       (dolist (comment (cdr article-entry))
         (when (eq (plist-get (cdr comment) :status) 'pending)
           (push (list (car comment)           ; comment-id
@@ -498,7 +468,7 @@ CONTEXT is optional code context the comment refers to."
   (when series-info
     (let* ((thread-id (plist-get series-info :thread-id))
            (series-comments '()))
-      (dolist (article-entry gnus-reviews-comment-database)
+      (dolist (article-entry (gnus-reviews--comments))
         (dolist (comment (cdr article-entry))
           (when (string= (plist-get (cdr comment) :thread-id) thread-id)
             (push (cons (car comment) comment) series-comments))))
@@ -556,6 +526,7 @@ based on message classification but always asks for confirmation."
      (list (completing-read
             (format "Copy to group (default %s): " default-group)
             all-groups nil t nil nil default-group))))
+  (gnus-reviews--ensure-groups)
   (gnus-summary-copy-article nil group)
   (message "Copied article to %s" group))
 
@@ -753,25 +724,21 @@ Keeps all pending comments regardless of age."
                                     (days-to-time gnus-reviews-auto-expire-days)))
         (removed-count 0))
     ;; Remove only old completed/dismissed comments, keep pending ones
-    (setq gnus-reviews-comment-database
-          (mapcar (lambda (article-entry)
-                    (cons (car article-entry)
-                          (cl-remove-if (lambda (comment)
-                                          (let ((comment-time (plist-get (cdr comment) :timestamp))
-                                                (status (plist-get (cdr comment) :status)))
-                                            (when (and comment-time
-                                                       (time-less-p comment-time cutoff-time)
-                                                       (memq status '(addressed dismissed)))
-                                              (cl-incf removed-count)
-                                              t)))
-                                        (cdr article-entry))))
-                  gnus-reviews-comment-database))
-    ;; Remove empty article entries
-    (setq gnus-reviews-comment-database
-          (cl-remove-if (lambda (entry) (null (cdr entry)))
-                        gnus-reviews-comment-database))
-    ;; Save changes
-    (gnus-reviews--save-data)
+    (gnus-reviews--store-comments
+     (cl-remove-if
+      (lambda (entry) (null (cdr entry)))
+      (mapcar (lambda (article-entry)
+                (cons (car article-entry)
+                      (cl-remove-if (lambda (comment)
+                                      (let ((comment-time (plist-get (cdr comment) :timestamp))
+                                            (status (plist-get (cdr comment) :status)))
+                                        (when (and comment-time
+                                                   (time-less-p comment-time cutoff-time)
+                                                   (memq status '(addressed dismissed)))
+                                          (cl-incf removed-count)
+                                          t)))
+                                    (cdr article-entry))))
+              (gnus-reviews--comments))))
     (message "Removed %d old completed comments (kept %d pending ones)"
              removed-count
              (length (gnus-reviews-list-pending-comments)))))
