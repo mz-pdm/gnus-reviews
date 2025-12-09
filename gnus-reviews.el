@@ -489,14 +489,14 @@ CONTEXT is optional code context the comment refers to."
       (dolist (article-entry (gnus-reviews--comments))
         (dolist (comment (cdr article-entry))
           (when (string= (plist-get (cdr comment) :thread-id) thread-id)
-            (push (cons (car comment) comment) series-comments))))
+            (push comment series-comments))))
       series-comments)))
 
 (defun gnus-reviews-list-pending-comments-for-series ()
   "List pending comments for the current patch series only."
   (let* ((series-info (gnus-reviews--get-current-patch-series))
          (series-comments (gnus-reviews-get-series-comments series-info)))
-    (cl-remove-if-not (lambda (comment) (eq (plist-get (cddr comment) :status) 'pending))
+    (cl-remove-if-not (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
                       series-comments)))
 
 ;;; Core Functions
@@ -846,7 +846,7 @@ STATUS should be one of: pending, addressed, dismissed."
   (interactive)
   (if-let ((pending-comments (gnus-reviews-list-pending-comments-for-series)))
       (let* ((comment-choices (mapcar (lambda (comment)
-                                        (let ((content (plist-get (cddr comment) :content)))
+                                        (let ((content (plist-get (cdr comment) :content)))
                                           (cons (format "%s: %s"
                                                         (car comment)
                                                         (if content
@@ -868,7 +868,7 @@ STATUS should be one of: pending, addressed, dismissed."
   (if-let ((all-comments (gnus-reviews-get-series-comments
                           (gnus-reviews--get-current-patch-series))))
       (let* ((comment-choices (mapcar (lambda (comment)
-                                        (let* ((comment-data (cddr comment)) ; series comments have extra nesting
+                                        (let* ((comment-data (cdr comment))
                                                (content (plist-get comment-data :content))
                                                (current-status (plist-get comment-data :status)))
                                           (cons (format "%s [%s]: %s"
@@ -900,7 +900,7 @@ STATUS should be one of: pending, addressed, dismissed."
          "*Gnus Reviews: Series Comments*"
          (format "Comments for patch series: %s"
                  (or (plist-get series-info :subject) "Unknown"))
-         (mapcar #'cdr series-comments) 200)
+         series-comments 200)
       (message "No comments found for current patch series"))))
 
 ;;;###autoload
@@ -914,7 +914,7 @@ STATUS should be one of: pending, addressed, dismissed."
          "*Gnus Reviews: Pending Series Comments*"
          (format "Pending comments for patch series: %s"
                  (or (plist-get series-info :subject) "Unknown"))
-         (mapcar #'cdr pending-comments) 200)
+         pending-comments 200)
       (message "No pending comments found for current patch series"))))
 
 ;;;###autoload
