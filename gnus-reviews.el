@@ -610,6 +610,26 @@ CONTENT-LIMIT is optional maximum characters to show from each comment."
        (cdr comment)
        content-limit))))
 
+(defun gnus-reviews--process-thread-action (target-group message-format)
+  "Perform a standard action on the current thread.
+This involves ensuring groups exist, collecting thread articles,
+copying them to TARGET-GROUP, boosting the thread score,
+and displaying a formatted message."
+  (interactive)
+  (gnus-reviews--ensure-groups)
+  (let* ((current-article (gnus-summary-article-number))
+         (thread-articles (gnus-reviews--collect-thread-articles))
+         (thread-root (car thread-articles)))
+    (when thread-articles
+      (let ((copied-count (gnus-reviews--copy-and-tick-articles thread-articles target-group)))
+        ;; Boost score for thread and return to original article
+        (when thread-root
+          (gnus-reviews--boost-thread-score thread-root))
+        (when current-article
+          (gnus-summary-goto-article current-article))
+        (message message-format copied-count target-group)))))
+
+
 ;;;###autoload
 (defun gnus-reviews-add-reviewed-by-tag ()
   "Insert a Reviewed-by tag with user's name and email at point."
@@ -648,18 +668,9 @@ based on message classification but always asks for confirmation."
   "Watch the current thread by copying all thread articles to watching group.
 Also increases the score for the thread to boost visibility."
   (interactive)
-  (gnus-reviews--ensure-groups)
-  (let* ((current-article (gnus-summary-article-number))
-         (thread-articles (gnus-reviews--collect-thread-articles))
-         (thread-root (car thread-articles))
-         (copied-count (gnus-reviews--copy-and-tick-articles thread-articles gnus-reviews-watching-group)))
-    ;; Boost score for thread and return to original article
-    (when thread-root
-      (gnus-reviews--boost-thread-score thread-root))
-    (when current-article
-      (gnus-summary-goto-article current-article))
-    (message "Watched thread: copied %d articles to %s"
-             copied-count gnus-reviews-watching-group)))
+  (gnus-reviews--process-thread-action
+   gnus-reviews-watching-group
+   "Watched thread: copied %d articles to %s"))
 
 ;;;###autoload
 (defun gnus-reviews-process-my-patch-review ()
@@ -705,18 +716,9 @@ Ticks all articles in the series, copies them to own patches group,
 and increases score for better visibility. Use this when you want to
 track your own patch series without processing review comments."
   (interactive)
-  (gnus-reviews--ensure-groups)
-  (let* ((current-article (gnus-summary-article-number))
-         (thread-articles (gnus-reviews--collect-thread-articles))
-         (thread-root (car thread-articles))
-         (copied-count (gnus-reviews--copy-and-tick-articles thread-articles gnus-reviews-own-patches-group)))
-    ;; Boost score for thread and return to original article
-    (when thread-root
-      (gnus-reviews--boost-thread-score thread-root))
-    (when current-article
-      (gnus-summary-goto-article current-article))
-    (message "Copied patch series: %d articles ticked and copied to %s"
-             copied-count gnus-reviews-own-patches-group)))
+  (gnus-reviews--process-thread-action
+   gnus-reviews-own-patches-group
+   "Copied patch series: %d articles ticked and copied to %s"))
 
 ;;;###autoload
 (defun gnus-reviews-queue-series-for-review ()
@@ -725,18 +727,9 @@ Ticks all articles in the series, copies them to review group,
 and increases score for better visibility. Use this when you want to
 review someone else's patch series."
   (interactive)
-  (gnus-reviews--ensure-groups)
-  (let* ((current-article (gnus-summary-article-number))
-         (thread-articles (gnus-reviews--collect-thread-articles))
-         (thread-root (car thread-articles))
-         (copied-count (gnus-reviews--copy-and-tick-articles thread-articles gnus-reviews-to-review-group)))
-    ;; Boost score for thread and return to original article
-    (when thread-root
-      (gnus-reviews--boost-thread-score thread-root))
-    (when current-article
-      (gnus-summary-goto-article current-article))
-    (message "Queued patch series for review: %d articles ticked and copied to %s"
-             copied-count gnus-reviews-to-review-group)))
+  (gnus-reviews--process-thread-action
+   gnus-reviews-to-review-group
+   "Queued patch series for review: %d articles ticked and copied to %s"))
 
 ;;;###autoload
 (defun gnus-reviews-increase-score ()
