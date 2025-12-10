@@ -536,7 +536,7 @@ Returns a list of article numbers in the complete thread."
           (let ((start-pos (point)))
             ;; Move to next thread to find the boundary
             (if (= (gnus-summary-next-thread 1) 0)
-                (let ((end-pos (point)))
+                (let ((end-pos (line-end-position 0)))
                   ;; Go back to start and collect all articles until next thread
                   (goto-char start-pos)
                   (while (< (point) end-pos)
