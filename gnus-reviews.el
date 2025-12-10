@@ -472,6 +472,22 @@ CONTEXT is optional code context the comment refers to."
     (plist-put (cdr comment) :status new-status)
     (gnus-reviews--save-data)))
 
+(defun gnus-reviews-update-comment-content (article-id comment-id new-content)
+  "Update the content of COMMENT-ID in ARTICLE-ID to NEW-CONTENT."
+  (when-let ((comment (cl-find-if (lambda (c) (string= (car c) comment-id))
+                                  (gnus-reviews-get-comments-for-article article-id))))
+    (plist-put (cdr comment) :content new-content)
+    (gnus-reviews--save-data)))
+
+(defun gnus-reviews--get-status-choices (comment-order)
+  "Get available status choices for a comment based on its order.
+COMMENT-ORDER is the sequential position of the comment (1-based).
+Returns a list of status strings, including 'merge' only if comment-order > 1."
+  (let ((base-choices '("pending" "addressed" "dismissed" "skip")))
+    (if (> comment-order 1)
+        (append base-choices '("merge"))
+      base-choices)))
+
 (defun gnus-reviews-list-pending-comments ()
   "List all pending comments across all articles."
   (let (pending)
@@ -814,7 +830,6 @@ the current article and all articles with the same core subject (prefixes stripp
   (when (gnus-reviews-is-review-email-p)
     (let* ((comments (gnus-reviews--parse-individual-comments))
            (tracked-count 0)
-           (status-choices '("pending" "addressed" "dismissed" "skip"))
            (article-id (gnus-reviews--current-article-id))
            (existing-comments (gnus-reviews-get-comments-for-article article-id)))
       (if comments
@@ -837,21 +852,46 @@ the current article and all articles with the same core subject (prefixes stripp
                                           (plist-get (cdr existing-comment) :status)))
                        (default-status (when existing-status
                                          (symbol-name existing-status)))
+                       ;; Get dynamic status choices based on comment order
+                       (status-choices (gnus-reviews--get-status-choices comment-order))
                        (prompt-text (if existing-status
                                         (format "Status for comment [EXISTING: %s]: %s\n> "
                                                 existing-status display-text)
                                       (format "Status for comment: %s\n> " display-text)))
                        (status (completing-read prompt-text status-choices nil t nil nil default-status)))
-                  (unless (string= status "skip")
-                    (if existing-comment
-                        ;; Update existing comment status if it changed
-                        (let ((new-status (intern status)))
-                          (unless (eq existing-status new-status)
-                            (gnus-reviews-update-comment-status article-id (car existing-comment) new-status)
+                  (cond
+                   ((string= status "skip")
+                    ;; Skip this comment entirely
+                    nil)
+                   ((string= status "merge")
+                    ;; Merge with preceding comment
+                    (if (> comment-order 1)
+                        (let* ((preceding-comment-id (gnus-reviews--generate-comment-id article-id (1- comment-order)))
+                               (preceding-comment (cl-find-if
+                                                   (lambda (c) (string= (car c) preceding-comment-id))
+                                                   existing-comments)))
+                          (if preceding-comment
+                              (let* ((preceding-content (plist-get (cdr preceding-comment) :content))
+                                     (merged-content (concat preceding-content "\n\n" text)))
+                                (gnus-reviews-update-comment-content article-id preceding-comment-id merged-content)
+                                (message "Merged comment with preceding comment %s" preceding-comment-id)
+                                (cl-incf tracked-count))
+                            (message "No preceding comment found to merge with, tracking as new comment")
+                            (gnus-reviews-track-individual-comment text 'pending comment-order context)
                             (cl-incf tracked-count)))
-                      ;; Track new comment
-                      (gnus-reviews-track-individual-comment text (intern status) comment-order context)
+                      (message "No preceding comment to merge with (this is the first comment), tracking as new comment")
+                      (gnus-reviews-track-individual-comment text 'pending comment-order context)
                       (cl-incf tracked-count)))
+                   (existing-comment
+                    ;; Update existing comment status if it changed
+                    (let ((new-status (intern status)))
+                      (unless (eq existing-status new-status)
+                        (gnus-reviews-update-comment-status article-id (car existing-comment) new-status)
+                        (cl-incf tracked-count))))
+                   (t
+                    ;; Track new comment with specified status
+                    (gnus-reviews-track-individual-comment text (intern status) comment-order context)
+                    (cl-incf tracked-count)))
                   (cl-incf comment-order))))
             (gnus-reviews-increase-score)
             (message "Tracked %d individual comments" tracked-count))
