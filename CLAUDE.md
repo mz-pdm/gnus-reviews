@@ -6,3 +6,4 @@
 - Don't commit byte compiled binary files.
 - Maintain proper indentation; you can use indent-region function to indent or to
   check indentation.
+- Try to avoid code duplication.
