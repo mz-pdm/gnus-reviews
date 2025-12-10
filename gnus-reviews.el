@@ -479,15 +479,6 @@ CONTEXT is optional code context the comment refers to."
     (plist-put (cdr comment) :content new-content)
     (gnus-reviews--save-data)))
 
-(defun gnus-reviews--get-status-choices (comment-order)
-  "Get available status choices for a comment based on its order.
-COMMENT-ORDER is the sequential position of the comment (1-based).
-Returns a list of status strings, including 'merge' only if comment-order > 1."
-  (let ((base-choices '("pending" "addressed" "dismissed" "skip")))
-    (if (> comment-order 1)
-        (append base-choices '("merge"))
-      base-choices)))
-
 (defun gnus-reviews-list-pending-comments ()
   "List all pending comments across all articles."
   (let (pending)
@@ -853,7 +844,8 @@ the current article and all articles with the same core subject (prefixes stripp
                        (default-status (when existing-status
                                          (symbol-name existing-status)))
                        ;; Get dynamic status choices based on comment order
-                       (status-choices (gnus-reviews--get-status-choices comment-order))
+                       (status-choices (append (when (> comment-order 1) "merge")
+                                               '("pending" "addressed" "dismissed" "skip")))
                        (prompt-text (if existing-status
                                         (format "Status for comment [EXISTING: %s]: %s\n> "
                                                 existing-status display-text)
