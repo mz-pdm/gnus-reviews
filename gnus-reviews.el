@@ -479,6 +479,15 @@ CONTEXT is optional code context the comment refers to."
     (plist-put (cdr comment) :content new-content)
     (gnus-reviews--save-data)))
 
+(defun gnus-reviews--get-status-choices (comment-order)
+  "Get available status choices for a comment based on its order.
+COMMENT-ORDER is the sequential position of the comment (1-based).
+Returns a list of status strings, including 'merge' only if comment-order > 1."
+  (let ((base-choices '("pending" "addressed" "dismissed" "skip")))
+    (if (> comment-order 1)
+        (append '("merge") base-choices)
+      base-choices)))
+
 (defun gnus-reviews-list-pending-comments ()
   "List all pending comments across all articles."
   (let (pending)
@@ -589,6 +598,127 @@ Returns the number of articles successfully copied."
           (cl-incf copied-count))))
     copied-count))
 
+;;; Interactive Comment Display
+
+(defvar gnus-reviews-comment-keymap
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "RET") #'gnus-reviews--comment-change-status)
+    (define-key map (kbd "c") #'gnus-reviews--comment-change-status)
+    (define-key map (kbd "s") #'gnus-reviews--comment-change-status)
+    (define-key map (kbd "d") #'gnus-reviews--comment-delete)
+    (define-key map (kbd "e") #'gnus-reviews--comment-edit)
+    (define-key map (kbd "v") #'gnus-reviews--comment-view-full)
+    (define-key map (kbd "y") #'gnus-reviews--comment-copy)
+    (define-key map (kbd "h") #'gnus-reviews--comment-help)
+    (define-key map (kbd "?") #'gnus-reviews--comment-help)
+    (define-key map [mouse-1] #'gnus-reviews--comment-change-status)
+    (define-key map [mouse-3] #'gnus-reviews--comment-help)
+    map)
+  "Keymap for interactive comment actions.")
+
+(defun gnus-reviews--get-comment-at-point ()
+  "Get the comment ID and article ID at point."
+  (let ((comment-id (get-text-property (point) 'gnus-reviews-comment-id))
+        (article-id (get-text-property (point) 'gnus-reviews-article-id)))
+    (when (and comment-id article-id)
+      (list article-id comment-id))))
+
+(defun gnus-reviews--comment-change-status ()
+  "Change the status of the comment at point."
+  (interactive)
+  (when-let ((comment-info (gnus-reviews--get-comment-at-point)))
+    (let* ((article-id (car comment-info))
+           (comment-id (cadr comment-info))
+           (comment (cl-find-if (lambda (c) (string= (car c) comment-id))
+                                (gnus-reviews-get-comments-for-article article-id)))
+           (current-status (when comment (plist-get (cdr comment) :status)))
+           (new-status (completing-read
+                        (format "Change status from %s to: " current-status)
+                        '("pending" "addressed" "dismissed") nil t)))
+      (when comment
+        (gnus-reviews-update-comment-status article-id comment-id (intern new-status))
+        (message "Changed comment %s status to %s" comment-id new-status)
+        ;; Refresh the display buffer
+        (gnus-reviews--refresh-comment-buffer)))))
+
+(defun gnus-reviews--comment-delete ()
+  "Delete the comment at point."
+  (interactive)
+  (when-let ((comment-info (gnus-reviews--get-comment-at-point)))
+    (let* ((article-id (car comment-info))
+           (comment-id (cadr comment-info)))
+      (when (yes-or-no-p (format "Delete comment %s? " comment-id))
+        ;; Remove comment from database
+        (let* ((article-comments (assoc article-id (gnus-reviews--comments)))
+               (updated-comments (cl-remove-if
+                                  (lambda (c) (string= (car c) comment-id))
+                                  (cdr article-comments))))
+          (setcdr article-comments updated-comments)
+          (gnus-reviews--save-data)
+          (message "Deleted comment %s" comment-id)
+          ;; Refresh the display buffer
+          (gnus-reviews--refresh-comment-buffer))))))
+
+(defun gnus-reviews--comment-edit ()
+  "Edit the content of the comment at point."
+  (interactive)
+  (when-let ((comment-info (gnus-reviews--get-comment-at-point)))
+    (let* ((article-id (car comment-info))
+           (comment-id (cadr comment-info))
+           (comment (cl-find-if (lambda (c) (string= (car c) comment-id))
+                                (gnus-reviews-get-comments-for-article article-id)))
+           (current-content (when comment (plist-get (cdr comment) :content))))
+      (when comment
+        (let ((new-content (read-string "Edit comment: " current-content)))
+          (gnus-reviews-update-comment-content article-id comment-id new-content)
+          (message "Updated comment %s" comment-id)
+          ;; Refresh the display buffer
+          (gnus-reviews--refresh-comment-buffer))))))
+
+(defun gnus-reviews--comment-view-full ()
+  "View the full content of the comment at point."
+  (interactive)
+  (when-let ((comment-info (gnus-reviews--get-comment-at-point)))
+    (let* ((article-id (car comment-info))
+           (comment-id (cadr comment-info))
+           (comment (cl-find-if (lambda (c) (string= (car c) comment-id))
+                                (gnus-reviews-get-comments-for-article article-id)))
+           (content (when comment (plist-get (cdr comment) :content))))
+      (when content
+        (with-output-to-temp-buffer "*Gnus Reviews: Full Comment*"
+          (princ (format "Comment ID: %s\n" comment-id))
+          (princ (format "Article ID: %s\n\n" article-id))
+          (princ content))))))
+
+(defun gnus-reviews--comment-copy ()
+  "Copy the content of the comment at point to the kill ring."
+  (interactive)
+  (when-let ((comment-info (gnus-reviews--get-comment-at-point)))
+    (let* ((article-id (car comment-info))
+           (comment-id (cadr comment-info))
+           (comment (cl-find-if (lambda (c) (string= (car c) comment-id))
+                                (gnus-reviews-get-comments-for-article article-id)))
+           (content (when comment (plist-get (cdr comment) :content))))
+      (when content
+        (kill-new content)
+        (message "Copied comment content to kill ring")))))
+
+(defun gnus-reviews--comment-help ()
+  "Show help for comment interactions."
+  (interactive)
+  (with-output-to-temp-buffer "*Gnus Reviews: Comment Help*"
+    (princ "Comment Interaction Keys:\n")
+    (princ "========================\n\n")
+    (princ "RET, c, s  - Change comment status\n")
+    (princ "d          - Delete comment\n")
+    (princ "e          - Edit comment content\n")
+    (princ "v          - View full comment\n")
+    (princ "y          - Copy comment to kill ring\n")
+    (princ "h, ?       - Show this help\n\n")
+    (princ "Mouse:\n")
+    (princ "Left click  - Change comment status\n")
+    (princ "Right click - Show help\n")))
+
 (defun gnus-reviews--boost-thread-score (thread-root-article)
   "Boost score for the entire thread starting from THREAD-ROOT-ARTICLE."
   (save-excursion
@@ -604,7 +734,9 @@ CONTENT-LIMIT is the maximum number of characters to show from content (default 
         (content (plist-get comment-data :content))
         (context (plist-get comment-data :context))
         (timestamp (plist-get comment-data :timestamp))
-        (limit (or content-limit 200)))
+        (limit (or content-limit 200))
+        (start-pos (point))
+        (article-id (car (split-string comment-id "#"))))
     ;; Display ID and timestamp
     (insert (format "ID: %s\nTime: %s\n" comment-id
                     (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
@@ -626,14 +758,82 @@ CONTENT-LIMIT is the maximum number of characters to show from content (default 
                             (substring content 0 (min limit (length content)))
                           "No content")))
       (insert (propertize comment-text 'face 'highlight)))
-    (insert "\n\n")))
+    (insert "\n\n")
 
-(defun gnus-reviews--display-comment-list (buffer-name title comments &optional content-limit)
+    ;; Add interactive properties to the entire comment block
+    (let ((end-pos (point)))
+      (add-text-properties start-pos end-pos
+                           (list 'gnus-reviews-comment-id comment-id
+                                 'gnus-reviews-article-id article-id
+                                 'keymap gnus-reviews-comment-keymap
+                                 'mouse-face 'highlight
+                                 'help-echo "RET/c/s: change status, d: delete, e: edit, v: view full, y: copy, h: help")))))
+
+(defun gnus-reviews--refresh-comment-buffer ()
+  "Refresh the current comment display buffer."
+  (let ((buffer-name (buffer-name)))
+    (cond
+     ;; Refresh series comments buffer
+     ((string= buffer-name "*Gnus Reviews: Series Comments*")
+      (let* ((series-info (gnus-reviews--get-current-patch-series))
+             (series-comments (gnus-reviews-get-series-comments series-info)))
+        (when series-comments
+          (gnus-reviews--regenerate-comment-buffer
+           buffer-name
+           (format "Comments for patch series: %s"
+                   (or (plist-get series-info :subject) "Unknown"))
+           series-comments 200))))
+
+     ;; Refresh pending series comments buffer
+     ((string= buffer-name "*Gnus Reviews: Pending Series Comments*")
+      (let* ((series-info (gnus-reviews--get-current-patch-series))
+             (pending-comments (gnus-reviews-list-pending-comments-for-series)))
+        (when pending-comments
+          (gnus-reviews--regenerate-comment-buffer
+           buffer-name
+           (format "Pending comments for patch series: %s"
+                   (or (plist-get series-info :subject) "Unknown"))
+           pending-comments 200))))
+
+     ;; Refresh article comments buffer
+     ((string= buffer-name "*Gnus Reviews: Article Comments*")
+      (let* ((article-id (gnus-reviews--current-article-id))
+             (comments (gnus-reviews-get-comments-for-article article-id)))
+        (when comments
+          (gnus-reviews--regenerate-comment-buffer
+           buffer-name
+           (format "Individual comments for article: %s" article-id)
+           comments 300)))))))
+
+(defun gnus-reviews--regenerate-comment-buffer (buffer-name title comments content-limit)
+  "Regenerate the content of an existing comment buffer.
+BUFFER-NAME is the name of the buffer to regenerate.
+TITLE is the header text to display.
+COMMENTS is the list of comments to display.
+CONTENT-LIMIT is maximum characters to show from each comment."
+  (when-let ((buffer (get-buffer buffer-name)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t)
+            (current-pos (point)))
+        (erase-buffer)
+        (insert (format "%s\n" title))
+        (insert (make-string (length title) ?=))
+        (insert "\n\n")
+        (dolist (comment comments)
+          (gnus-reviews--display-comment
+           (car comment)
+           (cdr comment)
+           content-limit))
+        ;; Try to restore cursor position, or go to the beginning
+        (goto-char (min current-pos (point-max)))))))
+
+(defun gnus-reviews--display-comment-list (buffer-name title comments &optional content-limit refresh-function)
   "Display a list of comments in a temporary buffer.
 BUFFER-NAME is the name of the buffer to create.
 TITLE is the header text to display.
 COMMENTS is the list of comments to display.
-CONTENT-LIMIT is optional maximum characters to show from each comment."
+CONTENT-LIMIT is optional maximum characters to show from each comment.
+REFRESH-FUNCTION is optional function to refresh the buffer content."
   (let ((buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
       (let ((inhibit-read-only t))
@@ -647,7 +847,14 @@ CONTENT-LIMIT is optional maximum characters to show from each comment."
            (cdr comment)
            content-limit))
         (goto-char (point-min))
-        (help-mode)))
+        (help-mode)
+        ;; Set up proper revert-buffer-function to handle M-x revert-buffer
+        (setq-local revert-buffer-function
+                    (lambda (&optional ignore-auto noconfirm)
+                      (gnus-reviews--refresh-comment-buffer)))
+        ;; Set up buffer-local refresh function (legacy, may remove later)
+        (when refresh-function
+          (setq-local gnus-reviews-buffer-refresh-function refresh-function))))
     (pop-to-buffer buffer)))
 
 (defun gnus-reviews--process-thread-action (target-group message-format)
@@ -844,8 +1051,7 @@ the current article and all articles with the same core subject (prefixes stripp
                        (default-status (when existing-status
                                          (symbol-name existing-status)))
                        ;; Get dynamic status choices based on comment order
-                       (status-choices (append (when (> comment-order 1) "merge")
-                                               '("pending" "addressed" "dismissed" "skip")))
+                       (status-choices (gnus-reviews--get-status-choices comment-order))
                        (prompt-text (if existing-status
                                         (format "Status for comment [EXISTING: %s]: %s\n> "
                                                 existing-status display-text)
