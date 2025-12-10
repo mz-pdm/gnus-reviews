@@ -672,12 +672,10 @@ Also increases the score for the thread to boost visibility."
    gnus-reviews-watching-group
    "Watched thread: copied %d articles to %s"))
 
-;;;###autoload
-(defun gnus-reviews-process-my-patch-review ()
-  "Process a review of your own patch.
+(defun gnus-reviews--process-patch-review-helper (target-group)
+  "Helper function to process a patch review and copy to TARGET-GROUP.
 Extracts and tracks individual comments, ticks the article if there are
-pending comments, and copies it to the own patches group for follow-up."
-  (interactive)
+pending comments, and copies it to the specified target group for follow-up."
   (unless (gnus-reviews-is-review-email-p)
     (error "Current article is not a review email"))
   (gnus-reviews--ensure-groups)
@@ -695,19 +693,35 @@ pending comments, and copies it to the own patches group for follow-up."
     ;; Tick the article only if there are pending comments
     (when (> pending-count 0)
       (gnus-summary-mark-article nil gnus-ticked-mark))
-    ;; Copy to own patches group
-    (gnus-summary-copy-article nil gnus-reviews-own-patches-group)
+    ;; Copy to target group
+    (gnus-summary-copy-article nil target-group)
     ;; Show feedback about what was processed
     (cond
      ((> pending-count 0)
       (message "Processed patch review: %d pending comments (of %d total), ticked and copied to %s"
-               pending-count total-count gnus-reviews-own-patches-group))
+               pending-count total-count target-group))
      ((> total-count 0)
       (message "Processed patch review: %d comments tracked (none pending), copied to %s"
-               total-count gnus-reviews-own-patches-group))
+               total-count target-group))
      (t
       (message "Processed patch review: no comments found, copied to %s"
-               gnus-reviews-own-patches-group)))))
+               target-group)))))
+
+;;;###autoload
+(defun gnus-reviews-process-my-patch-review ()
+  "Process a review of your own patch.
+Extracts and tracks individual comments, ticks the article if there are
+pending comments, and copies it to the own patches group for follow-up."
+  (interactive)
+  (gnus-reviews--process-patch-review-helper gnus-reviews-own-patches-group))
+
+;;;###autoload
+(defun gnus-reviews-process-others-patch-review ()
+  "Process a review of someone else's patch.
+Extracts and tracks individual comments, ticks the article if there are
+pending comments, and copies it to the reviews group for follow-up."
+  (interactive)
+  (gnus-reviews--process-patch-review-helper gnus-reviews-to-review-group))
 
 ;;;###autoload
 (defun gnus-reviews-copy-my-patch-series ()
