@@ -598,15 +598,28 @@ CONTENT-LIMIT is the maximum number of characters to show from content (default 
         (context (plist-get comment-data :context))
         (timestamp (plist-get comment-data :timestamp))
         (limit (or content-limit 200)))
-    (princ (format "ID: %s\nStatus: %s\nTime: %s\n"
-                   comment-id status
-                   (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
+    ;; Display ID and timestamp
+    (insert (format "ID: %s\nTime: %s\n" comment-id
+                    (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
+    ;; Display status with highlighting
+    (insert "Status: ")
+    (let ((status-face (pcase status
+                        ('pending 'warning)
+                        ('addressed 'success)
+                        ('dismissed 'shadow)
+                        (_ 'default))))
+      (insert (propertize (format "%s" status) 'face status-face)))
+    (insert "\n")
+    ;; Display context if available
     (when context
-      (princ (format "Context: %s\n" context)))
-    (princ (format "Comment: %s\n\n"
-                   (if content
-                       (substring content 0 (min limit (length content)))
-                     "No content")))))
+      (insert (format "Context: %s\n" (propertize context 'face 'italic))))
+    ;; Display comment content with highlighting
+    (insert "Comment: ")
+    (let ((comment-text (if content
+                            (substring content 0 (min limit (length content)))
+                          "No content")))
+      (insert (propertize comment-text 'face 'highlight)))
+    (insert "\n\n")))
 
 (defun gnus-reviews--display-comment-list (buffer-name title comments &optional content-limit)
   "Display a list of comments in a temporary buffer.
@@ -614,15 +627,21 @@ BUFFER-NAME is the name of the buffer to create.
 TITLE is the header text to display.
 COMMENTS is the list of comments to display.
 CONTENT-LIMIT is optional maximum characters to show from each comment."
-  (with-output-to-temp-buffer buffer-name
-    (princ (format "%s\n" title))
-    (princ (make-string (length title) ?=))
-    (princ "\n\n")
-    (dolist (comment comments)
-      (gnus-reviews--display-comment
-       (car comment)
-       (cdr comment)
-       content-limit))))
+  (let ((buffer (get-buffer-create buffer-name)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (format "%s\n" title))
+        (insert (make-string (length title) ?=))
+        (insert "\n\n")
+        (dolist (comment comments)
+          (gnus-reviews--display-comment
+           (car comment)
+           (cdr comment)
+           content-limit))
+        (goto-char (point-min))
+        (help-mode)))
+    (pop-to-buffer buffer)))
 
 (defun gnus-reviews--process-thread-action (target-group message-format)
   "Perform a standard action on the current thread.
