@@ -385,10 +385,24 @@ Returns a list of (content start-pos end-pos context) for each comment."
              ;; Found non-quoted, non-empty line
              ((looking-at "^\\([^>\n].*\\)$")
               (let ((line-text (save-match-data (string-trim (match-string-no-properties 1)))))
-                ;; Exclude signature lines, headers, but include actual comment content
+                ;; Exclude signature lines, headers, email reply introductions, and greetings
                 (when (and (> (length line-text) 0)
                            (string-match "\\w" line-text)
-                           (not (string-match "^\\(On \\|--\\|___\\|From:\\|Subject:\\)" line-text)))
+                           (not (or
+                                 ;; Email reply introductions
+                                 (string-match-p "^On " line-text)
+                                 (string-match-p " wrote:[ \t]*$" line-text)
+                                 (string-match-p " writes:[ \t]*$" line-text)
+                                 ;; Signature lines
+                                 (string-match-p "^--" line-text)
+                                 (string-match-p "^___" line-text)
+                                 ;; Headers
+                                 (string-match-p "^\\(From\\|Subject\\|Date\\|To\\|Cc\\):" line-text)
+                                 ;; Common greetings and closings (case insensitive)
+                                 (string-match-p "^[ \t]*\\(hi\\|hello\\|hey\\|dear\\)\\($\\|[ \t,]\\)"
+                                                 (downcase line-text))
+                                 (string-match-p "^[ \t]*\\(regards\\|best\\|thanks\\|thank you\\|cheers\\|sincerely\\|yours\\)\\( regards\\| wishes\\)?[ \t,]*$"
+                                                 (downcase line-text)))))
                   (when (null comment-start-pos)
                     (setq comment-start-pos (line-beginning-position)))
                   (push line-text comment-lines))))
