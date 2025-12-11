@@ -758,10 +758,10 @@ CONTENT-LIMIT is the maximum number of characters to show from content (default 
                             (substring content 0 (min limit (length content)))
                           "No content")))
       (insert (propertize comment-text 'face 'highlight)))
-    (insert "\n\n")
 
     ;; Add interactive properties to the entire comment block
     (let ((end-pos (point)))
+      (insert "\n\n")
       (add-text-properties start-pos end-pos
                            (list 'gnus-reviews-comment-id comment-id
                                  'gnus-reviews-article-id article-id
