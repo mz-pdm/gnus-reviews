@@ -612,6 +612,7 @@ Returns the number of articles successfully copied."
     (define-key map (kbd "v") #'gnus-reviews--comment-view-full)
     (define-key map (kbd "y") #'gnus-reviews--comment-copy)
     (define-key map (kbd "a") #'gnus-reviews--comment-show-article)
+    (define-key map (kbd "f") #'gnus-reviews--comment-filter-to-article)
     (define-key map (kbd "h") #'gnus-reviews--comment-help)
     (define-key map (kbd "?") #'gnus-reviews--comment-help)
     (define-key map [mouse-1] #'gnus-reviews--comment-change-status)
@@ -769,6 +770,32 @@ Returns the number of articles successfully copied."
           (error
            (message "Could not find or refer to article %s: %s" article-id (error-message-string err))))))))
 
+(defun gnus-reviews--comment-filter-to-article ()
+  "Filter buffer to show only comments from the same article as current comment."
+  (interactive)
+  (when-let ((comment-info (gnus-reviews--get-comment-at-point)))
+    (let* ((article-id (car comment-info))
+           (comments (gnus-reviews-get-comments-for-article article-id))
+           (buffer-name (buffer-name))
+           (pending-only (bound-and-true-p gnus-reviews-pending-only)))
+      (if comments
+          (let* ((filtered-comments (if pending-only
+                                        (cl-remove-if-not
+                                         (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
+                                         comments)
+                                      comments))
+                 (title-prefix (if pending-only "Pending individual comments" "Individual comments"))
+                 (new-title (format "%s for article: %s" title-prefix article-id))
+                 (content-limit (cond
+                                ((string-match-p "Series" buffer-name) 200)
+                                ((string-match-p "Article" buffer-name) 300)
+                                (t 250))))
+            (gnus-reviews--regenerate-comment-buffer buffer-name new-title filtered-comments content-limit)
+            (message "Filtered to %d comments from article: %s"
+                     (length filtered-comments)
+                     (substring article-id 0 (min 20 (length article-id)))))
+        (message "No comments found for article: %s" article-id)))))
+
 (defun gnus-reviews--comment-help ()
   "Show help for comment interactions."
   (interactive)
@@ -781,6 +808,7 @@ Returns the number of articles successfully copied."
     (princ "v          - View full comment\n")
     (princ "y          - Copy comment to kill ring\n")
     (princ "a          - Show article and jump to comment\n")
+    (princ "f          - Filter to comments from current article\n")
     (princ "h, ?       - Show this help\n\n")
     (princ "Mouse:\n")
     (princ "Left click  - Change comment status\n")
