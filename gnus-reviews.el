@@ -731,7 +731,7 @@ Returns the number of articles successfully copied."
               ;; Switch to article buffer and search for comment
               (when (and (boundp 'gnus-article-buffer)
                          gnus-article-buffer
-                         (buffer-live-p gnus-article-buffer))
+                         (buffer-live-p (get-buffer gnus-article-buffer)))
                 (pop-to-buffer gnus-article-buffer)
                 ;; Search for the comment content in the article
                 (goto-char (point-min))
