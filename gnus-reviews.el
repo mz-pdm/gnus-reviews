@@ -436,11 +436,13 @@ Returns a list of (content start-pos end-pos context) for each comment."
 
       (nreverse comments))))
 
-(defun gnus-reviews-track-individual-comment (comment-text status comment-order &optional context)
+(defun gnus-reviews-track-individual-comment (comment-text status comment-order
+                                                       &optional context)
   "Track an individual review comment.
 COMMENT-TEXT is the actual comment content.
 STATUS should be one of: `pending', `addressed', `dismissed'.
-COMMENT-ORDER is the sequential order of this comment within the article (1-based).
+COMMENT-ORDER is the sequential order of this comment within the
+article (1-based).
 CONTEXT is optional code context the comment refers to."
   (let* ((article-id (gnus-reviews--current-article-id))
          (thread-id (gnus-reviews--current-thread-id))
@@ -482,7 +484,7 @@ CONTEXT is optional code context the comment refers to."
 (defun gnus-reviews--get-status-choices (comment-order)
   "Get available status choices for a comment based on its order.
 COMMENT-ORDER is the sequential position of the comment (1-based).
-Returns a list of status strings, including 'merge' only if comment-order > 1."
+Returns a list of status strings, including `merge' only if comment-order > 1."
   (let ((base-choices '("pending" "addressed" "dismissed" "skip")))
     (if (> comment-order 1)
         (append '("merge") base-choices)
@@ -768,7 +770,8 @@ Returns the number of articles successfully copied."
   "Display a single comment with formatted output.
 COMMENT-ID is the comment identifier.
 COMMENT-DATA is the comment property list.
-CONTENT-LIMIT is the maximum number of characters to show from content (default 200)."
+CONTENT-LIMIT is the maximum number of characters to show from content
+(default 200)."
   (let ((status (plist-get comment-data :status))
         (content (plist-get comment-data :content))
         (context (plist-get comment-data :context))
@@ -889,7 +892,7 @@ REFRESH-FUNCTION is optional function to refresh the buffer content."
         (help-mode)
         ;; Set up proper revert-buffer-function to handle M-x revert-buffer
         (setq-local revert-buffer-function
-                    (lambda (&optional ignore-auto noconfirm)
+                    (lambda (&optional _ignore-auto _noconfirm)
                       (gnus-reviews--refresh-comment-buffer)))
         ;; Set up buffer-local refresh function (legacy, may remove later)
         (when refresh-function
@@ -1035,7 +1038,8 @@ review someone else's patch series."
 (defun gnus-reviews-increase-score ()
   "Increase score for the current review-related article subthread and subject.
 Temporarily boosts the score of all articles in the subthread starting from
-the current article and all articles with the same core subject (prefixes stripped)."
+the current article and all articles with the same core subject
+(prefixes stripped)."
   (interactive)
   (when (or (gnus-reviews-is-patch-email-p)
             (gnus-reviews-is-review-email-p))
