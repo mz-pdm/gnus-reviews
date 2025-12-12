@@ -609,6 +609,7 @@ Returns the number of articles successfully copied."
     (define-key map (kbd "e") #'gnus-reviews--comment-edit)
     (define-key map (kbd "v") #'gnus-reviews--comment-view-full)
     (define-key map (kbd "y") #'gnus-reviews--comment-copy)
+    (define-key map (kbd "a") #'gnus-reviews--comment-show-article)
     (define-key map (kbd "h") #'gnus-reviews--comment-help)
     (define-key map (kbd "?") #'gnus-reviews--comment-help)
     (define-key map [mouse-1] #'gnus-reviews--comment-change-status)
@@ -703,6 +704,43 @@ Returns the number of articles successfully copied."
         (kill-new content)
         (message "Copied comment content to kill ring")))))
 
+(defun gnus-reviews--comment-show-article ()
+  "Show the article of the current comment and jump to the comment within it."
+  (interactive)
+  (when-let ((comment-info (gnus-reviews--get-comment-at-point)))
+    (let* ((article-id (car comment-info))
+           (comment-id (cadr comment-info))
+           (comment (cl-find-if (lambda (c) (string= (car c) comment-id))
+                                (gnus-reviews-get-comments-for-article article-id)))
+           (comment-content (when comment (plist-get (cdr comment) :content))))
+      (if (not comment-content)
+          (message "Could not find comment content for %s" comment-id)
+        ;; Use gnus-summary-refer-article to jump to the article by Message-ID
+        (condition-case err
+            (progn
+              ;; Ensure we're in a summary buffer
+              (unless (and (boundp 'gnus-summary-buffer)
+                           gnus-summary-buffer
+                           (buffer-live-p gnus-summary-buffer))
+                (error "No Gnus summary buffer available"))
+              ;; Switch to summary buffer and refer to the article
+              (switch-to-buffer gnus-summary-buffer)
+              (gnus-summary-refer-article article-id)
+              ;; Switch to article buffer and search for comment
+              (when (and (boundp 'gnus-article-buffer)
+                         gnus-article-buffer
+                         (buffer-live-p gnus-article-buffer))
+                (pop-to-buffer gnus-article-buffer)
+                ;; Search for the comment content in the article
+                (goto-char (point-min))
+                (if (search-forward comment-content nil t)
+                    (progn
+                      (goto-char (match-beginning 0))
+                      (message "Jumped to comment in article: %s" comment-id))
+                  (message "Found article but could not locate comment text"))))
+          (error
+           (message "Could not find or refer to article %s: %s" article-id (error-message-string err))))))))
+
 (defun gnus-reviews--comment-help ()
   "Show help for comment interactions."
   (interactive)
@@ -714,6 +752,7 @@ Returns the number of articles successfully copied."
     (princ "e          - Edit comment content\n")
     (princ "v          - View full comment\n")
     (princ "y          - Copy comment to kill ring\n")
+    (princ "a          - Show article and jump to comment\n")
     (princ "h, ?       - Show this help\n\n")
     (princ "Mouse:\n")
     (princ "Left click  - Change comment status\n")
