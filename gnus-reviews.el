@@ -728,18 +728,44 @@ Returns the number of articles successfully copied."
               ;; Switch to summary buffer and refer to the article
               (switch-to-buffer gnus-summary-buffer)
               (gnus-summary-refer-article article-id)
-              ;; Switch to article buffer and search for comment
+              ;; Switch to article buffer and find comment with hybrid approach
               (when (and (boundp 'gnus-article-buffer)
                          gnus-article-buffer
                          (buffer-live-p (get-buffer gnus-article-buffer)))
-                (pop-to-buffer gnus-article-buffer)
-                ;; Search for the comment content in the article
-                (goto-char (point-min))
-                (if (search-forward comment-content nil t)
-                    (progn
-                      (goto-char (match-beginning 0))
-                      (message "Jumped to comment in article: %s" comment-id))
-                  (message "Found article but could not locate comment text"))))
+                (with-current-buffer gnus-article-buffer
+                  ;; Extract comment order from comment ID (format: "article-id#order")
+                  (let* ((comment-order (when (string-match "#\\([0-9]+\\)$" comment-id)
+                                          (string-to-number (match-string 1 comment-id))))
+                         ;; Re-parse comments to get current positions
+                         (current-comments (gnus-reviews--parse-individual-comments))
+                         (order-success nil))
+
+                    ;; Try order-based approach first with content verification
+                    (when (and comment-order current-comments
+                               (<= comment-order (length current-comments)))
+                      (let* ((target-comment (nth (1- comment-order) current-comments))
+                             (found-content (nth 0 target-comment))
+                             (start-pos (nth 1 target-comment)))
+                        ;; Verify that found content matches stored content
+                        (if (string= (string-trim found-content) (string-trim comment-content))
+                            (progn
+                              (setq order-success t)
+                              (pop-to-buffer gnus-article-buffer)
+                              (goto-char start-pos)
+                              (message "Jumped to comment #%d (order-based): %s" comment-order comment-id))
+                          ;; Content mismatch - order approach failed
+                          (message "Comment #%d content mismatch, trying content search..." comment-order))))
+
+                    ;; Fallback to content search if order approach failed
+                    (unless order-success
+                      (pop-to-buffer gnus-article-buffer)
+                      (goto-char (point-min))
+                      (if (search-forward comment-content nil t)
+                          (message "Jumped to comment (content-based): %s" comment-id)
+                        (if comment-order
+                            (message "Comment #%d not found in article (found %d comments, content search failed)"
+                                     comment-order (length (or current-comments '())))
+                          (message "Could not locate comment: %s" comment-id))))))))
           (error
            (message "Could not find or refer to article %s: %s" article-id (error-message-string err))))))))
 
