@@ -839,39 +839,44 @@ CONTENT-LIMIT is the maximum number of characters to show from content
 
 (defun gnus-reviews--refresh-comment-buffer ()
   "Refresh the current comment display buffer."
-  (let ((buffer-name (buffer-name)))
+  (let ((buffer-name (buffer-name))
+        (pending-only (bound-and-true-p gnus-reviews-pending-only)))
     (cond
-     ;; Refresh series comments buffer
-     ((string= buffer-name "*Gnus Reviews: Series Comments*")
+     ;; Refresh series comments buffer (all or pending based on stored state)
+     ((or (string= buffer-name "*Gnus Reviews: Series Comments*")
+          (string= buffer-name "*Gnus Reviews: Pending Series Comments*"))
       (let* ((series-info (gnus-reviews--get-current-patch-series))
-             (series-comments (gnus-reviews-get-series-comments series-info)))
-        (when series-comments
+             (series-comments (gnus-reviews-get-series-comments series-info))
+             (filtered-comments (if pending-only
+                                    (cl-remove-if-not
+                                     (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
+                                     series-comments)
+                                  series-comments))
+             (title-prefix (if pending-only "Pending comments" "Comments")))
+        (when filtered-comments
           (gnus-reviews--regenerate-comment-buffer
            buffer-name
-           (format "Comments for patch series: %s"
+           (format "%s for patch series: %s"
+                   title-prefix
                    (or (plist-get series-info :subject) "Unknown"))
-           series-comments 200))))
+           filtered-comments 200))))
 
-     ;; Refresh pending series comments buffer
-     ((string= buffer-name "*Gnus Reviews: Pending Series Comments*")
-      (let* ((series-info (gnus-reviews--get-current-patch-series))
-             (pending-comments (gnus-reviews-list-pending-comments-for-series)))
-        (when pending-comments
-          (gnus-reviews--regenerate-comment-buffer
-           buffer-name
-           (format "Pending comments for patch series: %s"
-                   (or (plist-get series-info :subject) "Unknown"))
-           pending-comments 200))))
-
-     ;; Refresh article comments buffer
-     ((string= buffer-name "*Gnus Reviews: Article Comments*")
+     ;; Refresh article comments buffer (all or pending based on stored state)
+     ((or (string= buffer-name "*Gnus Reviews: Article Comments*")
+          (string= buffer-name "*Gnus Reviews: Pending Article Comments*"))
       (let* ((article-id (gnus-reviews--current-article-id))
-             (comments (gnus-reviews-get-comments-for-article article-id)))
-        (when comments
+             (comments (gnus-reviews-get-comments-for-article article-id))
+             (filtered-comments (if pending-only
+                                    (cl-remove-if-not
+                                     (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
+                                     comments)
+                                  comments))
+             (title-prefix (if pending-only "Pending individual comments" "Individual comments")))
+        (when filtered-comments
           (gnus-reviews--regenerate-comment-buffer
            buffer-name
-           (format "Individual comments for article: %s" article-id)
-           comments 300)))))))
+           (format "%s for article: %s" title-prefix article-id)
+           filtered-comments 300)))))))
 
 (defun gnus-reviews--regenerate-comment-buffer (buffer-name title comments content-limit)
   "Regenerate the content of an existing comment buffer.
@@ -895,13 +900,13 @@ CONTENT-LIMIT is maximum characters to show from each comment."
         ;; Try to restore cursor position, or go to the beginning
         (goto-char (min current-pos (point-max)))))))
 
-(defun gnus-reviews--display-comment-list (buffer-name title comments &optional content-limit refresh-function)
+(defun gnus-reviews--display-comment-list (buffer-name title comments &optional content-limit pending-only)
   "Display a list of comments in a temporary buffer.
 BUFFER-NAME is the name of the buffer to create.
 TITLE is the header text to display.
 COMMENTS is the list of comments to display.
 CONTENT-LIMIT is optional maximum characters to show from each comment.
-REFRESH-FUNCTION is optional function to refresh the buffer content."
+PENDING-ONLY if non-nil indicates this buffer shows only pending comments."
   (let ((buffer (get-buffer-create buffer-name)))
     (with-current-buffer buffer
       (let ((inhibit-read-only t))
@@ -920,9 +925,8 @@ REFRESH-FUNCTION is optional function to refresh the buffer content."
         (setq-local revert-buffer-function
                     (lambda (&optional _ignore-auto _noconfirm)
                       (gnus-reviews--refresh-comment-buffer)))
-        ;; Set up buffer-local refresh function (legacy, may remove later)
-        (when refresh-function
-          (setq-local gnus-reviews-buffer-refresh-function refresh-function))))
+        ;; Store the filter state for refresh functionality
+        (setq-local gnus-reviews-pending-only pending-only)))
     (pop-to-buffer buffer)))
 
 (defun gnus-reviews--process-thread-action (target-group message-format)
@@ -1237,18 +1241,31 @@ STATUS should be one of: pending, addressed, dismissed."
     (message "No comments found for current context")))
 
 ;;;###autoload
-(defun gnus-reviews-show-series-comments ()
-  "Show all comments for the current patch series."
-  (interactive)
+(defun gnus-reviews-show-series-comments (&optional pending-only)
+  "Show all comments for the current patch series.
+With prefix argument PENDING-ONLY, show only pending comments."
+  (interactive "P")
   (let* ((series-info (gnus-reviews--get-current-patch-series))
-         (series-comments (gnus-reviews-get-series-comments series-info)))
-    (if series-comments
+         (series-comments (gnus-reviews-get-series-comments series-info))
+         (filtered-comments (if pending-only
+                                (cl-remove-if-not
+                                 (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
+                                 series-comments)
+                              series-comments))
+         (buffer-name (if pending-only
+                          "*Gnus Reviews: Pending Series Comments*"
+                        "*Gnus Reviews: Series Comments*"))
+         (title-prefix (if pending-only "Pending comments" "Comments")))
+    (if filtered-comments
         (gnus-reviews--display-comment-list
-         "*Gnus Reviews: Series Comments*"
-         (format "Comments for patch series: %s"
+         buffer-name
+         (format "%s for patch series: %s"
+                 title-prefix
                  (or (plist-get series-info :subject) "Unknown"))
-         series-comments 200)
-      (message "No comments found for current patch series"))))
+         filtered-comments 200 pending-only)
+      (message (if pending-only
+                   "No pending comments found for current patch series"
+                 "No comments found for current patch series")))))
 
 ;;;###autoload
 (defun gnus-reviews-show-pending-series-comments ()
@@ -1265,17 +1282,29 @@ STATUS should be one of: pending, addressed, dismissed."
       (message "No pending comments found for current patch series"))))
 
 ;;;###autoload
-(defun gnus-reviews-show-article-comments ()
-  "Show all individual comments for the current article."
-  (interactive)
+(defun gnus-reviews-show-article-comments (&optional pending-only)
+  "Show all individual comments for the current article.
+With prefix argument PENDING-ONLY, show only pending comments."
+  (interactive "P")
   (let* ((article-id (gnus-reviews--current-article-id))
-         (comments (gnus-reviews-get-comments-for-article article-id)))
-    (if comments
+         (comments (gnus-reviews-get-comments-for-article article-id))
+         (filtered-comments (if pending-only
+                                (cl-remove-if-not
+                                 (lambda (comment) (eq (plist-get (cdr comment) :status) 'pending))
+                                 comments)
+                              comments))
+         (buffer-name (if pending-only
+                          "*Gnus Reviews: Pending Article Comments*"
+                        "*Gnus Reviews: Article Comments*"))
+         (title-prefix (if pending-only "Pending individual comments" "Individual comments")))
+    (if filtered-comments
         (gnus-reviews--display-comment-list
-         "*Gnus Reviews: Article Comments*"
-         (format "Individual comments for article: %s" article-id)
-         comments 300)
-      (message "No individual comments found for current article"))))
+         buffer-name
+         (format "%s for article: %s" title-prefix article-id)
+         filtered-comments 300 pending-only)
+      (message (if pending-only
+                   "No pending comments found for current article"
+                 "No individual comments found for current article")))))
 
 ;;;###autoload
 (defun gnus-reviews-prune-old-reviews ()
