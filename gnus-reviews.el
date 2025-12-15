@@ -600,6 +600,24 @@ Returns the number of articles successfully copied."
           (cl-incf copied-count))))
     copied-count))
 
+(defun gnus-reviews--tick-processed-articles ()
+  "Tick all articles in current buffer that have process marks (#).
+Process marks indicate articles marked for batch processing."
+  (let ((process-articles (gnus-summary-work-articles nil))
+        (ticked-count 0)
+        (current-article (gnus-summary-article-number)))
+    (when process-articles
+      (dolist (article-num process-articles)
+        (when (gnus-summary-goto-article article-num)
+          ;; Tick the article with process mark
+          (gnus-summary-mark-article article-num gnus-ticked-mark)
+          (cl-incf ticked-count)))
+      ;; Return to original article
+      (when current-article
+        (gnus-summary-goto-article current-article))
+      (when (> ticked-count 0)
+        (message "Ticked %d articles with process marks" ticked-count)))))
+
 ;;; Interactive Comment Display
 
 (defvar gnus-reviews-comment-keymap
@@ -991,7 +1009,10 @@ and displaying a formatted message."
 (defun gnus-reviews-copy-to-group (&optional group)
   "Copy current article to GROUP.
 When called interactively, automatically suggests an appropriate group
-based on message classification but always asks for confirmation."
+based on message classification but always asks for confirmation.
+
+If called with a prefix argument, tick the copied article first and if there
+are articles with processed marks, tick them all."
   (interactive
    (let* ((type (gnus-reviews-classify-message))
           (default-group (pcase type
@@ -1007,8 +1028,16 @@ based on message classification but always asks for confirmation."
             (format "Copy to group (default %s): " default-group)
             all-groups nil t nil nil default-group))))
   (gnus-reviews--ensure-groups)
+
+  ;; Handle prefix argument: tick current article and processed articles
+  (when current-prefix-arg
+    (gnus-summary-mark-article nil gnus-ticked-mark)
+    (gnus-reviews--tick-processed-articles))
+
   (gnus-summary-copy-article nil group)
-  (message "Copied article to %s" group))
+  (message "Copied article to %s%s"
+           group
+           (if current-prefix-arg " (ticked)" "")))
 
 ;;;###autoload
 (defun gnus-reviews-watch-thread ()
