@@ -251,23 +251,35 @@ falls back to Message-ID if no References header is available."
 
 (defun gnus-reviews--current-article-title ()
   "Get the title/subject of the current article.
-If it's a patch, extract the clean patch title; otherwise return the subject."
+Intelligently strips reply prefixes (Re:, Fwd:) and patch prefixes
+([PATCH], [RFC]) to extract the clean underlying subject, regardless
+of combination."
   (gnus-with-article-buffer
     (let ((subject (gnus-fetch-field "Subject")))
       (when subject
-        (if (gnus-reviews-is-patch-email-p)
-            ;; For patch emails, try to extract clean patch title
-            (let ((patch-info (gnus-reviews-extract-patch-info)))
-              (if patch-info
-                  (plist-get patch-info :subject)
-                ;; Fallback to basic subject cleanup for patches
-                (replace-regexp-in-string
-                 "^\\(\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*\\)"
-                 "" (string-trim subject))))
-          ;; For non-patch emails, return cleaned subject
-          (replace-regexp-in-string
-           "^\\(Re:\\s-*\\|Fwd:\\s-*\\)+"
-           "" (string-trim subject)))))))
+        (setq subject (string-trim subject))
+        ;; Check if this is a reply (Re:/Fwd:) - if so, strip both reply and patch prefixes
+        (if (string-match-p "^\\(Re:\\s-*\\|Fwd:\\s-*\\)" subject)
+            ;; Reply: strip reply prefixes first, then patch/RFC prefixes
+            (let ((cleaned-subject subject))
+              ;; Remove reply prefixes
+              (setq cleaned-subject
+                    (replace-regexp-in-string "^\\(Re:\\s-*\\|Fwd:\\s-*\\)+" "" cleaned-subject))
+              ;; Remove patch/RFC prefixes if present
+              (setq cleaned-subject
+                    (replace-regexp-in-string "^\\s-*\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*" "" cleaned-subject))
+              (string-trim cleaned-subject))
+          ;; Not a reply: handle as patch or regular email
+          (if (gnus-reviews-is-patch-email-p)
+              ;; Patch email: try to extract clean patch title
+              (let ((patch-info (gnus-reviews-extract-patch-info)))
+                (if patch-info
+                    (plist-get patch-info :subject)
+                  ;; Fallback to basic subject cleanup for patches
+                  (replace-regexp-in-string
+                   "^\\s-*\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*" "" subject)))
+            ;; Regular email: return as-is (already trimmed)
+            subject))))))
 
 ;;; Message Classification
 
