@@ -114,6 +114,14 @@ If nil, uses `user-full-name'."
   :type 'boolean
   :group 'gnus-reviews)
 
+(defcustom gnus-reviews-group-comments-by-article t
+  "Whether to group series comments by article titles when displaying.
+When non-nil, series comments are grouped by article with section headers.
+When nil, comments are displayed in a flat list with article titles shown
+above each comment."
+  :type 'boolean
+  :group 'gnus-reviews)
+
 (defvar gnus-reviews-comment-database nil
   "Database of tracked review comments.
 Format: (:version 2 :articles ((msg-id . (:title title
@@ -897,12 +905,13 @@ Process marks indicate articles marked for batch processing."
     (gnus-summary-goto-article thread-root-article)
     (gnus-reviews-increase-score)))
 
-(defun gnus-reviews--display-comment (comment-id comment-data &optional content-limit)
+(defun gnus-reviews--display-comment (comment-id comment-data &optional content-limit show-article-title)
   "Display a single comment with formatted output.
 COMMENT-ID is the comment identifier.
 COMMENT-DATA is the comment property list.
 CONTENT-LIMIT is the maximum number of characters to show from content
-(default 200)."
+(default 200).
+SHOW-ARTICLE-TITLE if non-nil, displays the article title above the comment."
   (let ((status (plist-get comment-data :status))
         (content (plist-get comment-data :content))
         (context (plist-get comment-data :context))
@@ -910,6 +919,13 @@ CONTENT-LIMIT is the maximum number of characters to show from content
         (limit (or content-limit 200))
         (start-pos (point))
         (article-id (car (split-string comment-id "#"))))
+    ;; Display article title if requested
+    (when show-article-title
+      (let* ((article-entry (assoc article-id (gnus-reviews--comments)))
+             (article-title (when article-entry
+                              (plist-get (cdr article-entry) :title))))
+        (when article-title
+          (insert (format "Article: %s\n" (propertize article-title 'face 'info-title-1))))))
     ;; Display ID and timestamp
     (insert (format "ID: %s\nTime: %s\n" comment-id
                     (if timestamp (format-time-string "%Y-%m-%d %H:%M" timestamp) "Unknown")))
@@ -1005,6 +1021,59 @@ CONTENT-LIMIT is maximum characters to show from each comment."
         ;; Try to restore cursor position, or go to the beginning
         (goto-char (min current-pos (point-max)))))))
 
+(defun gnus-reviews--display-comments-grouped-by-article (buffer-name title comments &optional content-limit pending-only)
+  "Display comments grouped by article in a temporary buffer.
+BUFFER-NAME is the name of the buffer to create.
+TITLE is the header text to display.
+COMMENTS is the list of comments to display.
+CONTENT-LIMIT is optional maximum characters to show from each comment.
+PENDING-ONLY if non-nil indicates this buffer shows only pending comments."
+  (let ((buffer (get-buffer-create buffer-name))
+        (grouped-comments (make-hash-table :test 'equal)))
+    ;; Group comments by article ID
+    (dolist (comment comments)
+      (let* ((comment-id (car comment))
+             (article-id (car (split-string comment-id "#"))))
+        (push comment (gethash article-id grouped-comments))))
+
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert (format "%s\n" title))
+        (insert (make-string (length title) ?=))
+        (insert "\n\n")
+
+        ;; Sort article IDs for consistent display
+        (let ((article-ids (sort (hash-table-keys grouped-comments) #'string<)))
+          (dolist (article-id article-ids)
+            (let* ((article-comments (nreverse (gethash article-id grouped-comments)))
+                   (article-entry (assoc article-id (gnus-reviews--comments)))
+                   (article-title (when article-entry
+                                    (plist-get (cdr article-entry) :title))))
+              ;; Display article title as section header
+              (insert (format "\n[%s]\n"
+                              (propertize (or article-title "Unknown Article")
+                                          'face 'info-title-2)))
+              (insert (make-string (+ 2 (length (or article-title "Unknown Article"))) ?-))
+              (insert "\n\n")
+
+              ;; Display comments for this article
+              (dolist (comment article-comments)
+                (gnus-reviews--display-comment
+                 (car comment)
+                 (cdr comment)
+                 content-limit)))))
+
+        (goto-char (point-min))
+        (help-mode)
+        ;; Set up proper revert-buffer-function to handle M-x revert-buffer
+        (setq-local revert-buffer-function
+                    (lambda (&optional _ignore-auto _noconfirm)
+                      (gnus-reviews--refresh-comment-buffer)))
+        ;; Store the filter state for refresh functionality
+        (setq-local gnus-reviews-pending-only pending-only)))
+    (pop-to-buffer buffer)))
+
 (defun gnus-reviews--display-comment-list (buffer-name title comments &optional content-limit pending-only)
   "Display a list of comments in a temporary buffer.
 BUFFER-NAME is the name of the buffer to create.
@@ -1023,7 +1092,8 @@ PENDING-ONLY if non-nil indicates this buffer shows only pending comments."
           (gnus-reviews--display-comment
            (car comment)
            (cdr comment)
-           content-limit))
+           content-limit
+           t))  ; Show article titles for individual comments
         (goto-char (point-min))
         (help-mode)
         ;; Set up proper revert-buffer-function to handle M-x revert-buffer
@@ -1359,7 +1429,10 @@ STATUS should be one of: pending, addressed, dismissed."
 ;;;###autoload
 (defun gnus-reviews-show-series-comments (&optional pending-only)
   "Show all comments for the current patch series.
-With prefix argument PENDING-ONLY, show only pending comments."
+With prefix argument PENDING-ONLY, show only pending comments.
+Comments can be displayed grouped by article titles (if
+`gnus-reviews-group-comments-by-article' is non-nil) or as a flat list
+with article titles shown above each comment."
   (interactive "P")
   (let* ((series-info (gnus-reviews--get-current-patch-series))
          (series-comments (gnus-reviews-get-series-comments series-info))
@@ -1373,28 +1446,48 @@ With prefix argument PENDING-ONLY, show only pending comments."
                         "*Gnus Reviews: Series Comments*"))
          (title-prefix (if pending-only "Pending comments" "Comments")))
     (if filtered-comments
-        (gnus-reviews--display-comment-list
-         buffer-name
-         (format "%s for patch series: %s"
-                 title-prefix
-                 (or (plist-get series-info :subject) "Unknown"))
-         filtered-comments 200 pending-only)
+        (if gnus-reviews-group-comments-by-article
+            ;; Use grouped display - group comments by article with section headers
+            (gnus-reviews--display-comments-grouped-by-article
+             buffer-name
+             (format "%s for patch series: %s"
+                     title-prefix
+                     (or (plist-get series-info :subject) "Unknown"))
+             filtered-comments 200 pending-only)
+          ;; Use flat display - show article title above each comment
+          (gnus-reviews--display-comment-list
+           buffer-name
+           (format "%s for patch series: %s"
+                   title-prefix
+                   (or (plist-get series-info :subject) "Unknown"))
+           filtered-comments 200 pending-only))
       (message (if pending-only
                    "No pending comments found for current patch series"
                  "No comments found for current patch series")))))
 
 ;;;###autoload
 (defun gnus-reviews-show-pending-series-comments ()
-  "Show only pending comments for the current patch series."
+  "Show only pending comments for the current patch series.
+Comments can be displayed grouped by article titles (if
+`gnus-reviews-group-comments-by-article' is non-nil) or as a flat list
+with article titles shown above each comment."
   (interactive)
   (let* ((series-info (gnus-reviews--get-current-patch-series))
          (pending-comments (gnus-reviews-list-pending-comments-for-series)))
     (if pending-comments
-        (gnus-reviews--display-comment-list
-         "*Gnus Reviews: Pending Series Comments*"
-         (format "Pending comments for patch series: %s"
-                 (or (plist-get series-info :subject) "Unknown"))
-         pending-comments 200)
+        (if gnus-reviews-group-comments-by-article
+            ;; Use grouped display - group comments by article with section headers
+            (gnus-reviews--display-comments-grouped-by-article
+             "*Gnus Reviews: Pending Series Comments*"
+             (format "Pending comments for patch series: %s"
+                     (or (plist-get series-info :subject) "Unknown"))
+             pending-comments 200 t)
+          ;; Use flat display - show article title above each comment
+          (gnus-reviews--display-comment-list
+           "*Gnus Reviews: Pending Series Comments*"
+           (format "Pending comments for patch series: %s"
+                   (or (plist-get series-info :subject) "Unknown"))
+           pending-comments 200 t))
       (message "No pending comments found for current patch series"))))
 
 ;;;###autoload
