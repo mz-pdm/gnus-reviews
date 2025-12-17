@@ -116,9 +116,12 @@ If nil, uses `user-full-name'."
 
 (defvar gnus-reviews-comment-database nil
   "Database of tracked review comments.
-Format: ((message-id . ((comment-id . comment-plist) ...)) ...)
-where comment-plist is
-(:status status :content content :thread-id thread-id :timestamp timestamp :context context)")
+Format: (:version 2 :articles ((msg-id . (:title title
+                                          :comments comments)) ...))
+where title is the subject/title of the patch article and
+comments is ((comment-id . comment-plist) ...) with
+comment-plist (:status status :content content :thread-id thread-id
+               :timestamp timestamp :context context)")
 
 ;;; Data Persistence Functions
 
@@ -132,17 +135,38 @@ where comment-plist is
     (insert "))\n")))
 
 (defun gnus-reviews--load-data ()
-  "Load review data from persistent storage."
+  "Load review data from persistent storage and migrate format if needed."
   (when (and gnus-reviews-data-file (file-exists-p gnus-reviews-data-file))
-    (load gnus-reviews-data-file t t)))
+    (load gnus-reviews-data-file t t)
+    ;; Migrate old format to new format if needed
+    (when gnus-reviews-comment-database
+      (if (plist-get gnus-reviews-comment-database :version)
+          ;; Already in new format - check version
+          (let ((version (plist-get gnus-reviews-comment-database :version)))
+            (when (< version 2)
+              (error "Unsupported gnus-reviews database version: %s" version)))
+        ;; Old format - convert to new format
+        (let ((old-articles gnus-reviews-comment-database))
+          (setq gnus-reviews-comment-database
+                (list :version 2
+                      :articles (mapcar (lambda (article-entry)
+                                          (cons (car article-entry)
+                                                (list :title "Unknown"
+                                                      :comments (cdr article-entry))))
+                                        old-articles)))
+          ;; Save the migrated data
+          (gnus-reviews--save-data)
+          (message "Migrated gnus-reviews database to version 2 format"))))))
 
 (defun gnus-reviews--comments ()
+  "Get the articles list from the comment database."
   (unless gnus-reviews-comment-database
     (gnus-reviews--load-data))
-  gnus-reviews-comment-database)
+  (plist-get gnus-reviews-comment-database :articles))
 
-(defun gnus-reviews--store-comments (comments)
-  (setq gnus-reviews-comment-database comments)
+(defun gnus-reviews--store-comments (articles)
+  "Store the articles list in the versioned database format."
+  (setq gnus-reviews-comment-database (list :version 2 :articles articles))
   (gnus-reviews--save-data))
 
 ;;; Group Management Functions
@@ -216,6 +240,26 @@ falls back to Message-ID if no References header is available."
         (unless (equal refs "")
           (car (split-string refs " "))))
       (gnus-reviews--current-article-id)))
+
+(defun gnus-reviews--current-article-title ()
+  "Get the title/subject of the current article.
+If it's a patch, extract the clean patch title; otherwise return the subject."
+  (gnus-with-article-buffer
+    (let ((subject (gnus-fetch-field "Subject")))
+      (when subject
+        (if (gnus-reviews-is-patch-email-p)
+            ;; For patch emails, try to extract clean patch title
+            (let ((patch-info (gnus-reviews-extract-patch-info)))
+              (if patch-info
+                  (plist-get patch-info :subject)
+                ;; Fallback to basic subject cleanup for patches
+                (replace-regexp-in-string
+                 "^\\(\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*\\)"
+                 "" (string-trim subject))))
+          ;; For non-patch emails, return cleaned subject
+          (replace-regexp-in-string
+           "^\\(Re:\\s-*\\|Fwd:\\s-*\\)+"
+           "" (string-trim subject)))))))
 
 ;;; Message Classification
 
@@ -446,6 +490,7 @@ article (1-based).
 CONTEXT is optional code context the comment refers to."
   (let* ((article-id (gnus-reviews--current-article-id))
          (thread-id (gnus-reviews--current-thread-id))
+         (article-title (gnus-reviews--current-article-title))
          (comment-id (gnus-reviews--generate-comment-id article-id comment-order))
          (comment-data (list :status status
                              :content comment-text
@@ -454,18 +499,27 @@ CONTEXT is optional code context the comment refers to."
                              :context context)))
     (unless article-id
       (error "No article ID available - ensure there is a Gnus article buffer"))
-    ;; Add to comment database
-    (let ((article-comments (assoc article-id (gnus-reviews--comments))))
-      (if article-comments
-          (setcdr article-comments
-                  (cons (cons comment-id comment-data) (cdr article-comments)))
-        (gnus-reviews--store-comments (cons (cons article-id (list (cons comment-id comment-data)))
-                                            (gnus-reviews--comments)))))
+    ;; Add to comment database (always new format after migration)
+    (let ((article-entry (assoc article-id (gnus-reviews--comments))))
+      (if article-entry
+          ;; Add comment to existing article
+          (let ((article-data (cdr article-entry)))
+            (plist-put article-data :comments
+                      (cons (cons comment-id comment-data)
+                            (plist-get article-data :comments))))
+        ;; New article entry
+        (gnus-reviews--store-comments
+         (cons (cons article-id
+                     (list :title (or article-title "Unknown")
+                           :comments (list (cons comment-id comment-data))))
+               (gnus-reviews--comments)))))
     comment-id))
 
 (defun gnus-reviews-get-comments-for-article (article-id)
   "Get all tracked comments for ARTICLE-ID."
-  (cdr (assoc article-id (gnus-reviews--comments))))
+  (let ((article-entry (cdr (assoc article-id (gnus-reviews--comments)))))
+    (when article-entry
+      (plist-get article-entry :comments))))
 
 (defun gnus-reviews-update-comment-status (article-id comment-id new-status)
   "Update the status of COMMENT-ID in ARTICLE-ID to NEW-STATUS."
@@ -494,12 +548,15 @@ Returns a list of status strings, including `merge' only if comment-order > 1."
   "List all pending comments across all articles."
   (let (pending)
     (dolist (article-entry (gnus-reviews--comments))
-      (dolist (comment (cdr article-entry))
-        (when (eq (plist-get (cdr comment) :status) 'pending)
-          (push (list (car comment)           ; comment-id
-                      (car article-entry)     ; article-id
-                      (plist-get (cdr comment) :status)) ; status
-                pending))))
+      (let* ((article-id (car article-entry))
+             (article-data (cdr article-entry))
+             (comments (plist-get article-data :comments)))
+        (dolist (comment comments)
+          (when (eq (plist-get (cdr comment) :status) 'pending)
+            (push (list (car comment)           ; comment-id
+                        article-id              ; article-id
+                        (plist-get (cdr comment) :status)) ; status
+                  pending)))))
     pending))
 
 (defun gnus-reviews--get-current-patch-series ()
@@ -519,9 +576,11 @@ Returns a list of status strings, including `merge' only if comment-order > 1."
     (let* ((thread-id (plist-get series-info :thread-id))
            (series-comments '()))
       (dolist (article-entry (gnus-reviews--comments))
-        (dolist (comment (cdr article-entry))
-          (when (string= (plist-get (cdr comment) :thread-id) thread-id)
-            (push comment series-comments))))
+        (let* ((article-data (cdr article-entry))
+               (comments (plist-get article-data :comments)))
+          (dolist (comment comments)
+            (when (string= (plist-get (cdr comment) :thread-id) thread-id)
+              (push comment series-comments)))))
       series-comments)))
 
 (defun gnus-reviews-list-pending-comments-for-series ()
@@ -670,12 +729,12 @@ Process marks indicate articles marked for batch processing."
     (let* ((article-id (car comment-info))
            (comment-id (cadr comment-info)))
       (when (yes-or-no-p (format "Delete comment %s? " comment-id))
-        ;; Remove comment from database
-        (let* ((article-comments (assoc article-id (gnus-reviews--comments)))
-               (updated-comments (cl-remove-if
-                                  (lambda (c) (string= (car c) comment-id))
-                                  (cdr article-comments))))
-          (setcdr article-comments updated-comments)
+        ;; Remove comment from database (always new format after migration)
+        (let* ((article-entry (assoc article-id (gnus-reviews--comments)))
+               (article-data (cdr article-entry)))
+          (plist-put article-data :comments
+                    (cl-remove-if (lambda (c) (string= (car c) comment-id))
+                                 (plist-get article-data :comments)))
           (gnus-reviews--save-data)
           (message "Deleted comment %s" comment-id)
           ;; Refresh the display buffer
@@ -1377,16 +1436,21 @@ Keeps all pending comments regardless of age."
      (cl-remove-if
       (lambda (entry) (null (cdr entry)))
       (mapcar (lambda (article-entry)
-                (cons (car article-entry)
-                      (cl-remove-if (lambda (comment)
-                                      (let ((comment-time (plist-get (cdr comment) :timestamp))
-                                            (status (plist-get (cdr comment) :status)))
-                                        (when (and comment-time
-                                                   (time-less-p comment-time cutoff-time)
-                                                   (memq status '(addressed dismissed)))
-                                          (cl-incf removed-count)
-                                          t)))
-                                    (cdr article-entry))))
+                (let* ((article-id (car article-entry))
+                       (article-data (cdr article-entry))
+                       (updated-comments
+                        (cl-remove-if (lambda (comment)
+                                       (let ((comment-time (plist-get (cdr comment) :timestamp))
+                                             (status (plist-get (cdr comment) :status)))
+                                         (when (and comment-time
+                                                    (time-less-p comment-time cutoff-time)
+                                                    (memq status '(addressed dismissed)))
+                                           (cl-incf removed-count)
+                                           t)))
+                                     (plist-get article-data :comments))))
+                  (cons article-id
+                        (list :title (plist-get article-data :title)
+                              :comments updated-comments))))
               (gnus-reviews--comments))))
     (message "Removed %d old completed comments (kept %d pending ones)"
              removed-count
