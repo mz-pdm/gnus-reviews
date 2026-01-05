@@ -47,6 +47,8 @@
 (require 'gnus-group)
 (require 'message)
 (require 'cl-lib)
+(require 'org)
+(require 'org-id)
 
 ;;; Constants and Variables
 
@@ -90,8 +92,10 @@
   :type 'integer
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-data-file "~/.emacs.d/gnus-reviews-data.el"
-  "File to store persistent review data."
+(defcustom gnus-reviews-org-file "~/gnus-reviews.org"
+  "Org file to store review data in hierarchical format.
+The file is organized hierarchically by patch series, versions,
+and individual patches with comments stored as Org blocks."
   :type 'file
   :group 'gnus-reviews)
 
@@ -176,6 +180,159 @@ comment-plist (:status status :content content :thread-id thread-id
   "Store the articles list in the versioned database format."
   (setq gnus-reviews-comment-database (list :version 2 :articles articles))
   (gnus-reviews--save-data))
+
+;;; Org File Management Functions
+
+(defun gnus-reviews--ensure-org-file ()
+  "Ensure the Org file exists and has basic structure."
+  (unless (file-exists-p gnus-reviews-org-file)
+    (with-temp-file gnus-reviews-org-file
+      (insert "#+TITLE: Gnus Reviews Database\n")
+      (insert "#+DESCRIPTION: Hierarchical review data for email-based code reviews\n")
+      (insert "#+STARTUP: overview\n\n")
+      (insert "This file is managed by gnus-reviews.el - you can edit it manually,\n")
+      (insert "but be careful with the structure and properties.\n\n")))
+  (unless (get-file-buffer gnus-reviews-org-file)
+    (find-file-noselect gnus-reviews-org-file)))
+
+(defmacro with-gnus-reviews-org-buffer (&rest body)
+  "Execute BODY with the gnus-reviews Org file buffer current."
+  `(progn
+     (gnus-reviews--ensure-org-file)
+     (with-current-buffer (find-file-noselect gnus-reviews-org-file)
+       (org-mode)
+       ,@body)))
+
+(defun gnus-reviews--find-org-node-by-id (custom-id)
+  "Find Org node with CUSTOM-ID in the reviews file.
+Returns the position of the heading or nil if not found."
+  (with-gnus-reviews-org-buffer
+    (save-excursion
+      (condition-case nil
+          (progn
+            (org-link-search (concat "#" custom-id))
+            (org-back-to-heading t)
+            (point))
+        (error nil)))))
+
+(defun gnus-reviews--create-series-node (series-subject)
+  "Create a new series node for SERIES-SUBJECT.
+Returns the position of the created series heading."
+  (with-gnus-reviews-org-buffer
+    (let* ((clean-subject (replace-regexp-in-string "[^a-zA-Z0-9-]" "_" series-subject))
+           (series-id (format "series-%s" clean-subject)))
+      ;; Check if series already exists
+      (if-let ((existing-pos (gnus-reviews--find-org-node-by-id series-id)))
+          existing-pos
+        ;; Create new series node at end of file
+        (goto-char (point-max))
+        (unless (bolp) (insert "\n"))
+        (insert (format "\n* %s\n" series-subject))
+        (insert "  :PROPERTIES:\n")
+        (insert (format "  :CUSTOM_ID: %s\n" series-id))
+        (insert "  :STATUS: active\n")
+        (insert "  :END:\n")
+        (save-buffer)
+        (org-back-to-heading t)
+        (point)))))
+
+(defun gnus-reviews--add-comment-to-patch (patch-pos comment-data)
+  "Add a comment under patch at PATCH-POS.
+Returns the position after the comment."
+  (with-gnus-reviews-org-buffer
+    (goto-char patch-pos)
+    (org-end-of-subtree t nil)
+    (let ((status (plist-get comment-data :status))
+          (content (plist-get comment-data :content))
+          (context (plist-get comment-data :context)))
+      ;; Add context as quote block if present
+      (when context
+        (insert "\n#+BEGIN_QUOTE\n")
+        (insert context)
+        (insert "\n#+END_QUOTE\n"))
+      ;; Add comment with status indicator
+      (insert (format "\n#+STATUS: %s\n#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE\n"
+                      (symbol-name status)
+                      (or content "")))
+      (save-buffer)
+      (point))))
+
+(defun gnus-reviews--create-version-node (series-pos version thread-id)
+  "Create a version node under series at SERIES-POS.
+Returns the position of the version heading."
+  (with-gnus-reviews-org-buffer
+    (goto-char series-pos)
+    (let* ((version-title (format "v%s" version))
+           (version-id (format "version-%s-%s" thread-id version)))
+      ;; Look for existing version under this series
+      (if-let ((existing-pos (save-excursion
+                               (let ((series-end (save-excursion (org-end-of-subtree t t) (point))))
+                                 (when (re-search-forward
+                                        (format "^\\*\\* %s$" (regexp-quote version-title))
+                                        series-end t)
+                                   (org-back-to-heading t)
+                                   (point))))))
+          existing-pos
+        ;; Create new version node
+        (org-end-of-subtree t nil)
+        (insert (format "\n** %s\n" version-title))
+        (insert "   :PROPERTIES:\n")
+        (insert (format "   :CUSTOM_ID: %s\n" version-id))
+        (insert (format "   :VERSION_NUMBER: %s\n" version))
+        (insert "   :END:\n")
+        (save-buffer)
+        (org-back-to-heading t)
+        (point)))))
+
+(defun gnus-reviews--create-gnus-link (article-id)
+  "Create a Gnus link for ARTICLE-ID.
+Returns an Org link string or nil if link cannot be created."
+  (condition-case nil
+      ;; Try to get the group from current context
+      (when (and (boundp 'gnus-newsgroup-name) gnus-newsgroup-name)
+        (format "[[gnus:%s#%s][View in Gnus]]" gnus-newsgroup-name article-id))
+    (error nil)))
+
+(defun gnus-reviews--create-patch-node (version-pos article-id article-title)
+  "Create a patch node under version at VERSION-POS.
+Returns the position of the patch heading."
+  (with-gnus-reviews-org-buffer
+    (goto-char version-pos)
+    (let ((gnus-link (gnus-reviews--create-gnus-link article-id)))
+      ;; Create patch node under version
+      (org-end-of-subtree t nil)
+      (insert (format "\n*** %s\n" article-title))
+      (insert "    :PROPERTIES:\n")
+      (insert (format "    :CUSTOM_ID: %s\n" article-id))
+      (insert (format "    :ARTICLE_ID: %s\n" article-id))
+      (insert (format "    :ARTICLE_TITLE: %s\n" article-title))
+      (when gnus-link
+        (insert (format "    :GNUS_LINK: %s\n" gnus-link)))
+      (insert "    :END:\n")
+      (save-buffer)
+      (org-back-to-heading t)
+      (point))))
+
+(defun gnus-reviews--store-comment-in-org (article-id comment-id comment-data)
+  "Store a single comment in the Org file.
+ARTICLE-ID is the message ID, COMMENT-ID is the comment identifier,
+COMMENT-DATA is the comment property list."
+  (with-gnus-reviews-org-buffer
+    ;; Find or create patch node
+    (if-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
+        ;; Patch exists, add comment
+        (gnus-reviews--add-comment-to-patch patch-pos comment-data)
+      ;; Patch doesn't exist, need to create hierarchy
+      (let* ((thread-id (plist-get comment-data :thread-id))
+             (article-title (or (gnus-reviews--current-article-title) "Unknown Patch"))
+             (patch-info (gnus-reviews-extract-patch-info))
+             (series-subject (or (plist-get patch-info :subject) article-title))
+             (version (or (plist-get patch-info :version) "1")))
+        ;; Create the hierarchy: series -> version -> patch -> comment
+        (let* ((series-pos (gnus-reviews--create-series-node series-subject))
+               (version-pos (gnus-reviews--create-version-node series-pos version thread-id))
+               (patch-pos (gnus-reviews--create-patch-node version-pos article-id article-title)))
+          (gnus-reviews--add-comment-to-patch patch-pos comment-data))))))
 
 ;;; Group Management Functions
 
@@ -510,7 +667,6 @@ article (1-based).
 CONTEXT is optional code context the comment refers to."
   (let* ((article-id (gnus-reviews--current-article-id))
          (thread-id (gnus-reviews--current-thread-id))
-         (article-title (gnus-reviews--current-article-title))
          (comment-id (gnus-reviews--generate-comment-id article-id comment-order))
          (comment-data (list :status status
                              :content comment-text
@@ -519,41 +675,119 @@ CONTEXT is optional code context the comment refers to."
                              :context context)))
     (unless article-id
       (error "No article ID available - ensure there is a Gnus article buffer"))
-    ;; Add to comment database (always new format after migration)
-    (let ((article-entry (assoc article-id (gnus-reviews--comments))))
-      (if article-entry
-          ;; Add comment to existing article
-          (let ((article-data (cdr article-entry)))
-            (plist-put article-data :comments
-                      (cons (cons comment-id comment-data)
-                            (plist-get article-data :comments))))
-        ;; New article entry
-        (gnus-reviews--store-comments
-         (cons (cons article-id
-                     (list :title (or article-title "Unknown")
-                           :comments (list (cons comment-id comment-data))))
-               (gnus-reviews--comments)))))
+    ;; Store comment in Org file
+    (gnus-reviews--store-comment-in-org article-id comment-id comment-data)
     comment-id))
+
+(defun gnus-reviews--extract-comments-from-org-patch (article-id)
+  "Extract all comments for ARTICLE-ID from the Org file.
+Returns a list of (comment-id . comment-plist) entries."
+  (with-gnus-reviews-org-buffer
+    (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
+      (save-excursion
+        (goto-char patch-pos)
+        ;; Get thread-id from the version node (parent of patch)
+        (let* ((version-pos (save-excursion
+                              (org-up-heading-safe)
+                              (point)))
+               (version-props (when version-pos
+                                (save-excursion
+                                  (goto-char version-pos)
+                                  (org-entry-properties))))
+               (thread-id (cdr (assoc "THREAD_ID" version-props)))
+               (comments '())
+               (comment-order 1)
+               (patch-end (save-excursion (org-end-of-subtree t t) (point))))
+          ;; Look for comment blocks within the patch subtree
+          (while (re-search-forward "^#\\+STATUS: \\(\\w+\\)$" patch-end t)
+            (let* ((status (intern (match-string 1)))
+                   (status-pos (point))
+                   ;; Look for the example block immediately after status
+                   (example-start (when (re-search-forward "^#\\+BEGIN_EXAMPLE$" patch-end t)
+                                   (forward-line 1)
+                                   (point)))
+                   (example-end (when example-start
+                                 (re-search-forward "^#\\+END_EXAMPLE$" patch-end t)
+                                 (match-beginning 0)))
+                   (content (when (and example-start example-end)
+                             (string-trim (buffer-substring example-start example-end))))
+                   ;; Look for quote block before status (context)
+                   (context (save-excursion
+                             (goto-char status-pos)
+                             (when (re-search-backward "^#\\+BEGIN_QUOTE$" patch-pos t)
+                               (let ((quote-start (progn (forward-line 1) (point)))
+                                     (quote-end (when (re-search-forward "^#\\+END_QUOTE$" status-pos t)
+                                                  (match-beginning 0))))
+                                 (when quote-end
+                                   (string-trim (buffer-substring quote-start quote-end)))))))
+                   (comment-id (format "%s#%d" article-id comment-order))
+                   (comment-data (list :status status
+                                       :content content
+                                       :context context
+                                       :thread-id thread-id
+                                       :timestamp nil))) ; Not stored in current format
+              (when content
+                (push (cons comment-id comment-data) comments)
+                (setq comment-order (1+ comment-order)))))
+          (nreverse comments))))))
 
 (defun gnus-reviews-get-comments-for-article (article-id)
   "Get all tracked comments for ARTICLE-ID."
-  (let ((article-entry (cdr (assoc article-id (gnus-reviews--comments)))))
-    (when article-entry
-      (plist-get article-entry :comments))))
+  (gnus-reviews--extract-comments-from-org-patch article-id))
+
+(defun gnus-reviews--update-comment-status-in-org (article-id comment-id new-status)
+  "Update the status of COMMENT-ID in the Org file to NEW-STATUS."
+  (with-gnus-reviews-org-buffer
+    (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
+      (save-excursion
+        (goto-char patch-pos)
+        (let ((patch-end (save-excursion (org-end-of-subtree t t) (point)))
+              (comment-number (string-to-number (cadr (split-string comment-id "#"))))
+              (current-comment-count 0))
+          ;; Find the specific comment by counting #+STATUS: lines
+          (while (and (< current-comment-count comment-number)
+                      (re-search-forward "^#\\+STATUS: \\(\\w+\\)$" patch-end t))
+            (cl-incf current-comment-count)
+            (when (= current-comment-count comment-number)
+              ;; Found the target comment, update its status
+              (replace-match (format "#+STATUS: %s" (upcase (symbol-name new-status))) nil nil)
+              (save-buffer)
+              (cl-return t))))))))
+
+(defun gnus-reviews--update-comment-content-in-org (article-id comment-id new-content)
+  "Update the content of COMMENT-ID in the Org file to NEW-CONTENT."
+  (with-gnus-reviews-org-buffer
+    (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
+      (save-excursion
+        (goto-char patch-pos)
+        (let ((patch-end (save-excursion (org-end-of-subtree t t) (point)))
+              (comment-number (string-to-number (cadr (split-string comment-id "#"))))
+              (current-comment-count 0))
+          ;; Find the specific comment by counting #+STATUS: lines
+          (while (and (< current-comment-count comment-number)
+                      (re-search-forward "^#\\+STATUS: \\(\\w+\\)$" patch-end t))
+            (cl-incf current-comment-count)
+            (when (= current-comment-count comment-number)
+              ;; Found the target comment, now find its content block
+              (when (re-search-forward "^#\\+BEGIN_EXAMPLE$" patch-end t)
+                (let ((content-start (progn (forward-line 1) (point)))
+                      (content-end (when (re-search-forward "^#\\+END_EXAMPLE$" patch-end t)
+                                     (match-beginning 0))))
+                  (when content-end
+                    ;; Replace the content
+                    (delete-region content-start content-end)
+                    (goto-char content-start)
+                    (insert new-content)
+                    (save-buffer)
+                    (cl-return t)))))))))))
 
 (defun gnus-reviews-update-comment-status (article-id comment-id new-status)
   "Update the status of COMMENT-ID in ARTICLE-ID to NEW-STATUS."
-  (when-let ((comment (cl-find-if (lambda (c) (string= (car c) comment-id))
-                                  (gnus-reviews-get-comments-for-article article-id))))
-    (plist-put (cdr comment) :status new-status)
-    (gnus-reviews--save-data)))
+  (gnus-reviews--update-comment-status-in-org article-id comment-id new-status))
 
 (defun gnus-reviews-update-comment-content (article-id comment-id new-content)
   "Update the content of COMMENT-ID in ARTICLE-ID to NEW-CONTENT."
-  (when-let ((comment (cl-find-if (lambda (c) (string= (car c) comment-id))
-                                  (gnus-reviews-get-comments-for-article article-id))))
-    (plist-put (cdr comment) :content new-content)
-    (gnus-reviews--save-data)))
+  (gnus-reviews--update-comment-content-in-org article-id comment-id new-content))
 
 (defun gnus-reviews--get-status-choices (comment-order)
   "Get available status choices for a comment based on its order.
@@ -590,15 +824,33 @@ Returns a list of status strings, including `merge' only if comment-order > 1."
               :series-total (plist-get patch-info :series-total)
               :version (plist-get patch-info :version))))))
 
+(defun gnus-reviews--get-all-articles-from-org ()
+  "Get all article IDs that have comments in the Org file.
+Returns a list of article IDs."
+  (with-gnus-reviews-org-buffer
+    (let ((article-ids '()))
+      (save-excursion
+        (goto-char (point-min))
+        ;; Find all patch nodes (*** level headings with ARTICLE_ID property)
+        (while (re-search-forward "^\\*\\*\\* " nil t)
+          (save-excursion
+            (org-back-to-heading t)
+            (let ((props (org-entry-properties)))
+              (when-let ((article-id (cdr (assoc "ARTICLE_ID" props))))
+                (push article-id article-ids))))))
+      (nreverse article-ids))))
+
 (defun gnus-reviews-get-series-comments (series-info)
   "Get all comments related to a patch series."
   (when series-info
     (let* ((thread-id (plist-get series-info :thread-id))
            (series-comments '()))
-      (dolist (article-entry (gnus-reviews--comments))
-        (let* ((article-data (cdr article-entry))
-               (comments (plist-get article-data :comments)))
+      ;; Get all article IDs from Org file and check each one
+      (dolist (article-id (gnus-reviews--get-all-articles-from-org))
+        (let ((comments (gnus-reviews-get-comments-for-article article-id)))
           (dolist (comment comments)
+            ;; Check if comment belongs to this series by thread-id
+            ;; Note: We'll need to get thread-id from article properties since it's not stored per comment
             (when (string= (plist-get (cdr comment) :thread-id) thread-id)
               (push comment series-comments)))))
       series-comments)))
