@@ -269,7 +269,9 @@ ARTICLE-ID is the message ID and COMMENT-DATA is the comment property list."
       ;; Patch doesn't exist, need to create hierarchy
       (let* ((thread-id (plist-get comment-data :thread-id))
              (article-title (or (gnus-reviews--current-article-title) "Unknown Patch"))
-             (patch-info (gnus-reviews-extract-patch-info))
+             ;; Get patch info from thread root article, not current article
+             (patch-info (or (gnus-reviews--extract-patch-info-from-thread-root thread-id)
+                             (gnus-reviews-extract-patch-info))) ; fallback to current article
              (series-subject (or (plist-get patch-info :subject) article-title))
              (version (or (plist-get patch-info :version) "1")))
         ;; Create the hierarchy: series -> version -> patch -> comment
@@ -318,6 +320,23 @@ ARTICLE-ID is the message ID and COMMENT-DATA is the comment property list."
 
 ;;; Utility Functions
 
+(defun gnus-reviews--extract-patch-info-from-thread-root (thread-id)
+  "Extract patch information from the thread root article identified by THREAD-ID.
+Returns a plist with :series-num, :series-total, :version, :subject, or nil if not found."
+  (when thread-id
+    (condition-case nil
+        ;; Try to refer to the thread root article and extract patch info
+        (save-excursion
+          (when (and (boundp 'gnus-summary-buffer)
+                     gnus-summary-buffer
+                     (buffer-live-p gnus-summary-buffer))
+            (with-current-buffer gnus-summary-buffer
+              ;; Try to find and refer to the article by Message-ID
+              (when (gnus-summary-refer-article thread-id)
+                ;; Extract patch info from the referred article
+                (gnus-reviews-extract-patch-info)))))
+      (error nil))))
+
 (defun gnus-reviews--article-header (func field)
   (cond
    ;; Try to get from article buffer context first (most reliable)
@@ -343,11 +362,17 @@ ARTICLE-ID is the message ID and COMMENT-DATA is the comment property list."
 
 (defun gnus-reviews--current-thread-id ()
   "Get the thread ID of the current article.
-Uses References headers to determine thread membership,
-falls back to Message-ID if no References header is available."
+Uses References headers to determine thread membership by finding the
+top-most article in the thread, falls back to Message-ID if no
+References header is available."
   (or (when-let ((refs (gnus-reviews--article-header #'mail-header-references "References")))
         (unless (equal refs "")
-          (car (split-string refs " "))))
+          ;; Split references and clean up Message-IDs, then get the first (thread root)
+          (let ((ref-list (mapcar #'string-trim
+                                  (split-string refs "[ \t\n]+" t))))
+            (when ref-list
+              ;; Remove angle brackets if present and get the thread root
+              (replace-regexp-in-string "^<\\|>$" "" (car ref-list))))))
       (gnus-reviews--current-article-id)))
 
 (defun gnus-reviews--current-article-title ()
