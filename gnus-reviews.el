@@ -377,35 +377,39 @@ References header is available."
 
 (defun gnus-reviews--current-article-title ()
   "Get the title/subject of the current article.
-Intelligently strips reply prefixes (Re:, Fwd:) and patch prefixes
-([PATCH], [RFC]) to extract the clean underlying subject, regardless
-of combination."
+Strips reply prefixes (Re:, Fwd:) and patch type prefixes ([PATCH], [RFC])
+while preserving series information (e.g., 1/3) from any email that has it."
   (gnus-with-article-buffer
     (let ((subject (gnus-fetch-field "Subject")))
       (when subject
         (setq subject (string-trim subject))
-        ;; Check if this is a reply (Re:/Fwd:) - if so, strip both reply and patch prefixes
-        (if (string-match-p "^\\(Re:\\s-*\\|Fwd:\\s-*\\)" subject)
-            ;; Reply: strip reply prefixes first, then patch/RFC prefixes
-            (let ((cleaned-subject subject))
-              ;; Remove reply prefixes
-              (setq cleaned-subject
-                    (replace-regexp-in-string "^\\(Re:\\s-*\\|Fwd:\\s-*\\)+" "" cleaned-subject))
-              ;; Remove patch/RFC prefixes if present
-              (setq cleaned-subject
-                    (replace-regexp-in-string "^\\s-*\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*" "" cleaned-subject))
-              (string-trim cleaned-subject))
-          ;; Not a reply: handle as patch or regular email
-          (if (gnus-reviews-is-patch-email-p)
-              ;; Patch email: try to extract clean patch title
-              (let ((patch-info (gnus-reviews-extract-patch-info)))
-                (if patch-info
-                    (plist-get patch-info :subject)
-                  ;; Fallback to basic subject cleanup for patches
-                  (replace-regexp-in-string
-                   "^\\s-*\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*" "" subject)))
-            ;; Regular email: return as-is (already trimmed)
-            subject))))))
+        ;; First, extract any patch series information that might be present
+        (let ((series-info nil)
+              (clean-subject subject))
+          ;; Look for series numbers in various formats
+          (cond
+           ;; Format: [PATCH v2 1/3] or [RFC PATCH v1 2/5] etc.
+           ((string-match "\\[\\(?:PATCH\\|RFC\\)\\(?:[^]]*?\\)\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
+            (setq series-info (format "[%s/%s]" (match-string 1 subject) (match-string 2 subject)))
+            (setq clean-subject (match-string 3 subject)))
+           ;; Format: Re: [PATCH v2 1/3] (reply to patch with series info)
+           ((string-match "\\(?:Re:\\s-*\\|Fwd:\\s-*\\)+.*?\\[\\(?:PATCH\\|RFC\\)\\(?:[^]]*?\\)\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
+            (setq series-info (format "[#%s/%s]" (match-string 1 subject) (match-string 2 subject)))
+            (setq clean-subject (match-string 3 subject))))
+
+          ;; Remove reply prefixes
+          (setq clean-subject
+                (replace-regexp-in-string "^\\(Re:\\s-*\\|Fwd:\\s-*\\)+" "" clean-subject))
+
+          ;; Remove any remaining patch/RFC prefixes
+          (setq clean-subject
+                (replace-regexp-in-string "^\\s-*\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*" "" clean-subject))
+
+          ;; Trim and combine series info with clean subject
+          (setq clean-subject (string-trim clean-subject))
+          (if series-info
+              (format "%s %s" series-info clean-subject)
+            clean-subject))))))
 
 ;;; Message Classification
 
