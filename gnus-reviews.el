@@ -189,15 +189,25 @@ Returns the position after the comment."
     (org-end-of-subtree t nil)
     (let ((status (plist-get comment-data :status))
           (content (plist-get comment-data :content))
-          (context (plist-get comment-data :context)))
+          (context (plist-get comment-data :context))
+          (author-name (plist-get comment-data :author-name))
+          (author-email (plist-get comment-data :author-email))
+          (review-email-id (plist-get comment-data :review-email-id))
+          (review-newsgroup-name (plist-get comment-data :review-newsgroup-name)))
       ;; Add context as quote block if present
       (when context
         (insert "\n#+BEGIN_QUOTE\n")
         (insert context)
         (insert "\n#+END_QUOTE\n"))
-      ;; Add comment with status indicator
-      (insert (format "\n#+STATUS: %s\n#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE\n"
-                      (symbol-name status)
+      ;; Add comment with status and author indicators
+      (insert (format "\n#+STATUS: %s\n" (symbol-name status)))
+      ;; Add author information with link to review email
+      (when (and author-name review-email-id)
+        (let ((author-link (if review-newsgroup-name
+                               (format "[[gnus:%s#%s][%s]]" review-newsgroup-name review-email-id author-name)
+                             author-name)))
+          (insert (format "#+AUTHOR: %s\n" author-link))))
+      (insert (format "#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE\n"
                       (or content "")))
       (save-buffer)
       (point))))
@@ -258,26 +268,35 @@ Returns the position of the patch heading."
       (org-back-to-heading t)
       (point))))
 
-(defun gnus-reviews--store-comment-in-org (article-id comment-data)
+(defun gnus-reviews--store-comment-in-org (patch-email-id comment-data)
   "Store a single comment in the Org file.
-ARTICLE-ID is the message ID and COMMENT-DATA is the comment property list."
+PATCH-EMAIL-ID is the patch email's message ID (article nodes represent patches, not reviews).
+COMMENT-DATA is the comment property list."
   (with-gnus-reviews-org-buffer
-    ;; Find or create patch node
-    (if-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
+    ;; Find or create patch node using the patch email's Message-ID
+    (if-let ((patch-pos (gnus-reviews--find-org-node-by-id patch-email-id)))
         ;; Patch exists, add comment
         (gnus-reviews--add-comment-to-patch patch-pos comment-data)
       ;; Patch doesn't exist, need to create hierarchy
       (let* ((thread-id (plist-get comment-data :thread-id))
-             (article-title (or (gnus-reviews--current-article-title) "Unknown Patch"))
-             ;; Get patch info from thread root article, not current article
-             (patch-info (or (gnus-reviews--extract-patch-info-from-thread-root thread-id)
-                             (gnus-reviews-extract-patch-info))) ; fallback to current article
-             (series-subject (or (plist-get patch-info :subject) article-title))
+             ;; Get patch info and title from the patch email
+             (patch-info (gnus-reviews--extract-patch-info-from-thread-root patch-email-id))
+             (patch-title (or (when patch-info
+                                (let ((series-num (plist-get patch-info :series-num))
+                                      (series-total (plist-get patch-info :series-total))
+                                      (clean-subject (plist-get patch-info :subject)))
+                                  ;; Include series information if this is part of a multi-patch series
+                                  (if (and series-num series-total (> series-total 1))
+                                      (format "[%d/%d] %s" series-num series-total clean-subject)
+                                    clean-subject)))
+                              "Unknown Patch"))
+             (series-subject (or (plist-get patch-info :subject) patch-title))
              (version (or (plist-get patch-info :version) "1")))
         ;; Create the hierarchy: series -> version -> patch -> comment
+        ;; Use the patch email's Message-ID as the patch node identifier
         (let* ((series-pos (gnus-reviews--create-series-node series-subject))
                (version-pos (gnus-reviews--create-version-node series-pos version thread-id))
-               (patch-pos (gnus-reviews--create-patch-node version-pos article-id article-title)))
+               (patch-pos (gnus-reviews--create-patch-node version-pos patch-email-id patch-title)))
           (gnus-reviews--add-comment-to-patch patch-pos comment-data))))))
 
 ;;; Group Management Functions
@@ -375,6 +394,87 @@ References header is available."
               (replace-regexp-in-string "^<\\|>$" "" (car ref-list))))))
       (gnus-reviews--current-article-id)))
 
+(defun gnus-reviews--find-patch-email-id ()
+  "Find the patch email that the current review is commenting on.
+Walks up the References chain to find the first email that is not a reply
+(doesn't have 'Re:' in subject). Returns the Message-ID of that patch email."
+  (let ((current-id (gnus-reviews--current-article-id))
+        (subject (gnus-reviews--article-header #'mail-header-subject "Subject")))
+    ;; If current article doesn't have "Re:" in subject, it might be the patch itself
+    (if (and subject (not (string-match-p "^\\s-*Re:" subject)))
+        ;; This is not a reply, so it's likely the patch email
+        current-id
+      ;; This is a reply, walk up the References chain to find the patch
+      (gnus-reviews--find-patch-from-references))))
+
+(defun gnus-reviews--find-patch-from-references ()
+  "Find the patch email by walking up the References chain.
+Uses the References header to find the first email that is not a reply."
+  (let ((refs (gnus-reviews--article-header #'mail-header-references "References")))
+    (if (and refs (not (equal refs "")))
+        ;; Parse References header and walk through Message-IDs
+        (let ((ref-list (mapcar (lambda (ref)
+                                  (string-trim (replace-regexp-in-string "^<\\|>$" "" ref)))
+                                (split-string refs "[ \t\n]+" t))))
+          (when ref-list
+            ;; Walk through References in reverse order (most recent first)
+            ;; Skip the last one as it's usually the immediate parent
+            (gnus-reviews--check-references-for-patch (reverse ref-list))))
+      ;; No References header, fall back to current article
+      (gnus-reviews--current-article-id))))
+
+(defun gnus-reviews--check-references-for-patch (message-ids)
+  "Check MESSAGE-IDS list to find the first non-reply (patch) email."
+  (when message-ids
+    (condition-case nil
+        (save-excursion
+          (when (and (boundp 'gnus-summary-buffer)
+                     gnus-summary-buffer
+                     (buffer-live-p gnus-summary-buffer))
+            (with-current-buffer gnus-summary-buffer
+              ;; Try each Message-ID until we find a non-reply
+              (let ((found-patch nil))
+                (dolist (msg-id message-ids)
+                  (when (and (not found-patch) msg-id)
+                    (when (gnus-summary-refer-article msg-id)
+                      (let ((subject (gnus-reviews--article-header #'mail-header-subject "Subject")))
+                        (when (and subject (not (string-match-p "^\\s-*Re:" subject)))
+                          ;; Found a non-reply, this is likely the patch
+                          (setq found-patch msg-id))))))
+                ;; Return the found patch or fallback to first reference
+                (or found-patch (car message-ids))))))
+      (error
+       ;; If we can't retrieve emails, fall back to first reference
+       (car message-ids)))))
+
+(defun gnus-reviews--walk-up-reply-chain-for-patch (message-id)
+  "Walk up the reply chain starting from MESSAGE-ID to find the patch email.
+Returns the Message-ID of the first email in the chain that is not a reply."
+  (when message-id
+    (condition-case nil
+        (save-excursion
+          (when (and (boundp 'gnus-summary-buffer)
+                     gnus-summary-buffer
+                     (buffer-live-p gnus-summary-buffer))
+            (with-current-buffer gnus-summary-buffer
+              ;; Try to refer to the article by Message-ID
+              (when (gnus-summary-refer-article message-id)
+                (let ((subject (gnus-with-article-buffer (gnus-fetch-field "Subject")))
+                      (parent-reply-to (gnus-with-article-buffer
+                                         (string-trim
+                                          (or (gnus-fetch-field "In-Reply-To") "")))))
+                  (if (and subject (not (string-match-p "^\\s-*Re:" subject)))
+                      ;; Found a non-reply, this is the patch email
+                      message-id
+                    ;; Still a reply, continue walking up
+                    (if (and parent-reply-to (> (length parent-reply-to) 0))
+                        (gnus-reviews--walk-up-reply-chain-for-patch parent-reply-to)
+                      ;; No more parents, use this as fallback
+                      message-id)))))))
+      (error
+       ;; If we can't retrieve the email, use the current message-id as fallback
+       message-id))))
+
 (defun gnus-reviews--current-article-title ()
   "Get the title/subject of the current article.
 Strips reply prefixes (Re:, Fwd:) and patch type prefixes ([PATCH], [RFC])
@@ -390,7 +490,7 @@ while preserving series information (e.g., 1/3) from any email that has it."
           (cond
            ;; Format: [PATCH v2 1/3] or [RFC PATCH v1 2/5] etc.
            ((string-match "\\[\\(?:PATCH\\|RFC\\)\\(?:[^]]*?\\)\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
-            (setq series-info (format "[%s/%s]" (match-string 1 subject) (match-string 2 subject)))
+            (setq series-info (format "[#%s/%s]" (match-string 1 subject) (match-string 2 subject)))
             (setq clean-subject (match-string 3 subject)))
            ;; Format: Re: [PATCH v2 1/3] (reply to patch with series info)
            ((string-match "\\(?:Re:\\s-*\\|Fwd:\\s-*\\)+.*?\\[\\(?:PATCH\\|RFC\\)\\(?:[^]]*?\\)\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
@@ -631,25 +731,35 @@ Returns a list of (content start-pos end-pos context) for each comment."
       (nreverse comments))))
 
 (defun gnus-reviews-track-individual-comment (comment-text status comment-order
-                                                       &optional context)
+                                                       &optional context author-name author-email review-newsgroup-name)
   "Track an individual review comment.
 COMMENT-TEXT is the actual comment content.
 STATUS should be one of: `pending', `addressed', `dismissed'.
 COMMENT-ORDER is the sequential order of this comment within the
 article (1-based).
-CONTEXT is optional code context the comment refers to."
-  (let* ((article-id (gnus-reviews--current-article-id))
+CONTEXT is optional code context the comment refers to.
+AUTHOR-NAME, AUTHOR-EMAIL, REVIEW-NEWSGROUP-NAME are author information from the review email."
+  (let* ((review-email-id (gnus-reviews--current-article-id))
+         ;; Note: Context information should be passed in from caller to avoid
+         ;; issues when processing multiple comments from the same email
+         (patch-email-id (gnus-reviews--find-patch-email-id))
          (thread-id (gnus-reviews--current-thread-id))
-         (comment-id (gnus-reviews--generate-comment-id article-id comment-order))
+         (comment-id (gnus-reviews--generate-comment-id patch-email-id comment-order))
          (comment-data (list :status status
                              :content comment-text
                              :thread-id thread-id
                              :timestamp (current-time)
-                             :context context)))
-    (unless article-id
-      (error "No article ID available - ensure there is a Gnus article buffer"))
-    ;; Store comment in Org file
-    (gnus-reviews--store-comment-in-org article-id comment-data)
+                             :context context
+                             :author-name author-name
+                             :author-email author-email
+                             :review-email-id review-email-id
+                             :review-newsgroup-name review-newsgroup-name)))
+    (unless review-email-id
+      (error "No review email ID available - ensure there is a Gnus article buffer"))
+    (unless patch-email-id
+      (error "Could not find patch email ID for this review"))
+    ;; Store comment in Org file using patch email ID as the article node
+    (gnus-reviews--store-comment-in-org patch-email-id comment-data)
     comment-id))
 
 (defun gnus-reviews--extract-comments-from-org-patch (article-id)
@@ -675,7 +785,11 @@ Returns a list of (comment-id . comment-plist) entries."
           (while (re-search-forward "^#\\+STATUS: \\(\\w+\\)$" patch-end t)
             (let* ((status (intern (match-string 1)))
                    (status-pos (point))
-                   ;; Look for the example block immediately after status
+                   ;; Look for author information after status
+                   (author-info (save-excursion
+                                 (when (re-search-forward "^#\\+AUTHOR: \\(.+\\)$" patch-end t)
+                                   (match-string 1))))
+                   ;; Look for the example block after status/author
                    (example-start (when (re-search-forward "^#\\+BEGIN_EXAMPLE$" patch-end t)
                                    (forward-line 1)
                                    (point)))
@@ -698,7 +812,8 @@ Returns a list of (comment-id . comment-plist) entries."
                                        :content content
                                        :context context
                                        :thread-id thread-id
-                                       :timestamp nil))) ; Not stored in current format
+                                       :timestamp nil ; Not stored in current format
+                                       :author-info author-info)))
               (when content
                 (push (cons comment-id comment-data) comments)
                 (setq comment-order (1+ comment-order)))))
@@ -1548,7 +1663,19 @@ the current article and all articles with the same core subject
   "Extract individual comments from current article and assign status to each."
   (interactive)
   (when (gnus-reviews-is-review-email-p)
-    (let* ((comments (gnus-reviews--parse-individual-comments))
+    (let* (;; Extract author information FIRST before any context changes
+           (author-from (gnus-reviews--article-header #'mail-header-from "From"))
+           (author-name (when author-from
+                          (if (string-match "^\\([^<]+\\)\\s-*<" author-from)
+                              (string-trim (match-string 1 author-from))
+                            (string-trim author-from))))
+           (author-email (when author-from
+                           (if (string-match "<\\([^>]+\\)>" author-from)
+                               (match-string 1 author-from)
+                             author-from)))
+           (review-newsgroup-name (and (boundp 'gnus-newsgroup-name) gnus-newsgroup-name))
+           ;; Now extract other information
+           (comments (gnus-reviews--parse-individual-comments))
            (tracked-count 0)
            (article-id (gnus-reviews--current-article-id))
            (existing-comments (gnus-reviews-get-comments-for-article article-id)))
@@ -1597,10 +1724,10 @@ the current article and all articles with the same core subject
                                 (message "Merged comment with preceding comment %s" preceding-comment-id)
                                 (cl-incf tracked-count))
                             (message "No preceding comment found to merge with, tracking as new comment")
-                            (gnus-reviews-track-individual-comment text 'pending comment-order context)
+                            (gnus-reviews-track-individual-comment text 'pending comment-order context author-name author-email review-newsgroup-name)
                             (cl-incf tracked-count)))
                       (message "No preceding comment to merge with (this is the first comment), tracking as new comment")
-                      (gnus-reviews-track-individual-comment text 'pending comment-order context)
+                      (gnus-reviews-track-individual-comment text 'pending comment-order context author-name author-email review-newsgroup-name)
                       (cl-incf tracked-count)))
                    (existing-comment
                     ;; Update existing comment status if it changed
@@ -1610,7 +1737,7 @@ the current article and all articles with the same core subject
                         (cl-incf tracked-count))))
                    (t
                     ;; Track new comment with specified status
-                    (gnus-reviews-track-individual-comment text (intern status) comment-order context)
+                    (gnus-reviews-track-individual-comment text (intern status) comment-order context author-name author-email review-newsgroup-name)
                     (cl-incf tracked-count)))
                   (cl-incf comment-order))))
             (gnus-reviews-increase-score)
