@@ -270,15 +270,15 @@ COMMENT-DATA is the comment property list."
       (let* ((thread-id (plist-get comment-data :thread-id))
              ;; Get patch info and title from the patch email
              (patch-info (gnus-reviews--extract-patch-info-from-thread-root patch-email-id))
-             (patch-title (or (when patch-info
-                                (let ((series-num (plist-get patch-info :series-num))
-                                      (series-total (plist-get patch-info :series-total))
-                                      (clean-subject (plist-get patch-info :subject)))
-                                  ;; Include series information if this is part of a multi-patch series
-                                  (if (and series-num series-total (> series-total 1))
-                                      (format "[#%d/%d] %s" series-num series-total clean-subject)
-                                    clean-subject)))
-                              "Unknown Patch"))
+             (patch-title (if patch-info
+                              (let ((series-num (plist-get patch-info :series-num))
+                                    (series-total (plist-get patch-info :series-total))
+                                    (clean-subject (plist-get patch-info :subject)))
+                                ;; Include series information if this is part of a multi-patch series
+                                (if (and series-num series-total (> series-total 1))
+                                    (format "[#%d/%d] %s" series-num series-total clean-subject)
+                                  clean-subject))
+                            "Unknown Patch"))
              (series-subject (or (plist-get patch-info :subject) patch-title))
              (version (or (plist-get patch-info :version) "1")))
         ;; Create the hierarchy: series -> version -> patch -> comment
