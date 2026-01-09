@@ -99,6 +99,7 @@ above each comment."
     (with-temp-file gnus-reviews-org-file
       (insert "#+TITLE: Gnus Reviews Database\n")
       (insert "#+DESCRIPTION: Hierarchical review data for email-based code reviews\n")
+      (insert "#+TODO: PENDING | REJECTED DONE\n")
       (insert "#+STARTUP: overview\n\n")
       (insert "This file is managed by gnus-reviews.el - you can edit it manually,\n")
       (insert "but be careful with the structure and properties.\n\n")))
@@ -123,6 +124,14 @@ Returns the position of the heading or nil if not found."
         (org-back-to-heading t)
         (point)))))
 
+(defun gnus-reviews--insert-properties-block (properties)
+  (insert "  :PROPERTIES:\n")
+  (dolist (p properties)
+    (cl-destructuring-bind (prop . val) p
+      (when val
+        (insert (format "  :%s: %s\n" prop val)))))
+  (insert "  :END:\n"))
+
 (defun gnus-reviews--create-series-node (series-subject)
   "Create a new series node for SERIES-SUBJECT.
 Returns the position of the created series heading."
@@ -136,43 +145,40 @@ Returns the position of the created series heading."
         (goto-char (point-max))
         (unless (bolp) (insert "\n"))
         (insert (format "\n* %s\n" series-subject))
-        (insert "  :PROPERTIES:\n")
-        (insert (format "  :CUSTOM_ID: %s\n" series-id))
-        (insert "  :STATUS: active\n")
-        (insert "  :END:\n")
+        (gnus-reviews--insert-properties-block `(("CUSTOM_ID" . ,series-id)
+                                                 ("STATUS" . "active")))
         (save-buffer)
         (org-back-to-heading t)
         (point)))))
 
 (defun gnus-reviews--add-comment-to-patch (patch-pos comment-data)
-  "Add a comment under patch at PATCH-POS.
-Returns the position after the comment."
   (gnus-reviews--with-org-buffer
     (goto-char patch-pos)
     (org-end-of-subtree t nil)
-    (let ((status (plist-get comment-data :status))
-          (content (plist-get comment-data :content))
-          (context (plist-get comment-data :context))
-          (author-name (plist-get comment-data :author-name))
-          (review-email-id (plist-get comment-data :review-email-id))
-          (review-newsgroup-name (plist-get comment-data :review-newsgroup-name)))
-      ;; Add context as quote block if present
+    (let* ((status (plist-get comment-data :status))
+           (content (or (plist-get comment-data :content) ""))
+           (content-start (substring content 0 (min 40 (length content))))
+           (content-intro (car (split-string content-start "\n")))
+           (context (plist-get comment-data :context))
+           (author (or (plist-get comment-data :author-name)
+                       (plist-get comment-data :author-email)))
+           (review-email-id (plist-get comment-data :review-email-id)))
+      (insert (format "\n**** %s %s\n" status content-intro))
+      (when review-email-id
+        (gnus-reviews--insert-properties-block
+         `(("AUTHOR" . ,(gnus-reviews--gnus-link review-email-id author)))))
       (when context
         (insert "\n#+BEGIN_QUOTE\n")
-        (insert context)
-        (insert "\n#+END_QUOTE\n"))
-      ;; Add comment with status and author indicators
-      (insert (format "\n#+STATUS: %s\n" (symbol-name status)))
+        (dolist (line (split-string context "\n"))
+          (insert "> " line "\n"))
+        (insert "#+END_QUOTE\n"))
       ;; Add author information with link to review email
-      (when (and author-name review-email-id)
-        (let ((author-link (if review-newsgroup-name
-                               (format "[[gnus:%s#%s][%s]]" review-newsgroup-name review-email-id author-name)
-                             author-name)))
-          (insert (format "#+AUTHOR: %s\n" author-link))))
-      (insert (format "#+BEGIN_EXAMPLE\n%s\n#+END_EXAMPLE\n"
-                      (or content "")))
+      (insert "\n#+BEGIN_RESPONSE\n")
+      (dolist (line (split-string content "\n"))
+        (insert "  " line "\n"))
+      (insert "#+END_RESPONSE\n"))
       (save-buffer)
-      (point))))
+      (point)))
 
 (defun gnus-reviews--create-version-node (series-pos version thread-id)
   "Create a version node under series at SERIES-POS.
@@ -193,17 +199,15 @@ Returns the position of the version heading."
         ;; Create new version node
         (org-end-of-subtree t nil)
         (insert (format "\n** %s\n" version-title))
-        (insert "   :PROPERTIES:\n")
-        (insert (format "   :CUSTOM_ID: %s\n" version-id))
-        (insert (format "   :VERSION_NUMBER: %s\n" version))
-        (insert "   :END:\n")
+        (gnus-reviews--insert-properties-block `(("CUSTOM_ID" . ,version-id)
+                                                 ("VERSION_NUMBER" . ,version)))
         (save-buffer)
         (org-back-to-heading t)
         (point)))))
 
-(defun gnus-reviews--create-gnus-link (article-id)
+(defun gnus-reviews--gnus-link (article-id title)
   (if gnus-newsgroup-name
-      (format "[[gnus:%s#%s][View in Gnus]]" gnus-newsgroup-name article-id)
+      (format "[[gnus:%s#%s][%s]]" gnus-newsgroup-name article-id (or title "View in Gnus"))
     (error "No newsgroup active")))
 
 (defun gnus-reviews--create-patch-node (version-pos article-id article-title)
@@ -211,17 +215,13 @@ Returns the position of the version heading."
 Returns the position of the patch heading."
   (gnus-reviews--with-org-buffer
     (goto-char version-pos)
-    (let ((gnus-link (gnus-reviews--create-gnus-link article-id)))
+    (let ((gnus-link (gnus-reviews--gnus-link article-id "Patch e-mail")))
       ;; Create patch node under version
       (org-end-of-subtree t nil)
       (insert (format "\n*** %s\n" article-title))
-      (insert "    :PROPERTIES:\n")
-      (insert (format "    :CUSTOM_ID: %s\n" article-id))
-      (insert (format "    :ARTICLE_ID: %s\n" article-id))
-      (insert (format "    :ARTICLE_TITLE: %s\n" article-title))
-      (when gnus-link
-        (insert (format "    :GNUS_LINK: %s\n" gnus-link)))
-      (insert "    :END:\n")
+      (gnus-reviews--insert-properties-block `(("CUSTOM_ID" . ,article-id)
+                                               ("ARTICLE_TITLE" . ,article-title)
+                                               ("GNUS_LINK" . ,gnus-link)))
       (save-buffer)
       (org-back-to-heading t)
       (point))))
@@ -492,12 +492,6 @@ Returns a plist with :series-num, :series-total, :version, :subject."
 
 ;;; Comment Tracking System
 
-(defun gnus-reviews--generate-comment-id (article-id comment-order)
-  "Generate a deterministic unique comment ID.
-ARTICLE-ID identifies the article, COMMENT-ORDER is the sequential order
-of this comment within the article (1-based)."
-  (format "%s#%d" article-id comment-order))
-
 (defun gnus-reviews--parse-individual-comments ()
   "Parse individual review comments from current article.
 Returns a list of (content start-pos end-pos context) for each comment."
@@ -589,21 +583,17 @@ Returns a list of (content start-pos end-pos context) for each comment."
 
       (nreverse comments))))
 
-(defun gnus-reviews-track-individual-comment (comment-text status comment-order
-                                                       &optional context author-name author-email review-newsgroup-name)
+(defun gnus-reviews-track-individual-comment (comment-text status context author-name author-email)
   "Track an individual review comment.
 COMMENT-TEXT is the actual comment content.
-STATUS should be one of: `pending', `addressed', `dismissed'.
-COMMENT-ORDER is the sequential order of this comment within the
-article (1-based).
+STATUS should be one of: \"PENDING\", \"REJECTED\", \"DONE\".
 CONTEXT is optional code context the comment refers to.
-AUTHOR-NAME, AUTHOR-EMAIL, REVIEW-NEWSGROUP-NAME are author information from the review email."
+AUTHOR-NAME and AUTHOR-EMAIL are author information from the review email."
   (let* ((review-email-id (gnus-reviews--current-article-id))
          ;; Note: Context information should be passed in from caller to avoid
          ;; issues when processing multiple comments from the same email
          (patch-email-id (gnus-reviews--find-patch-email-id))
          (thread-id (gnus-reviews--current-thread-id))
-         (comment-id (gnus-reviews--generate-comment-id patch-email-id comment-order))
          (comment-data (list :status status
                              :content comment-text
                              :thread-id thread-id
@@ -611,24 +601,19 @@ AUTHOR-NAME, AUTHOR-EMAIL, REVIEW-NEWSGROUP-NAME are author information from the
                              :context context
                              :author-name author-name
                              :author-email author-email
-                             :review-email-id review-email-id
-                             :review-newsgroup-name review-newsgroup-name)))
+                             :review-email-id review-email-id)))
     (unless review-email-id
       (error "No review email ID available - ensure there is a Gnus article buffer"))
     (unless patch-email-id
       (error "Could not find patch email ID for this review"))
     ;; Store comment in Org file using patch email ID as the article node
-    (gnus-reviews--store-comment-in-org patch-email-id comment-data)
-    comment-id))
+    (gnus-reviews--store-comment-in-org patch-email-id comment-data)))
 
-(defun gnus-reviews--get-status-choices (comment-order)
-  "Get available status choices for a comment based on its order.
-COMMENT-ORDER is the sequential position of the comment (1-based).
-Returns a list of status strings, including `merge' only if comment-order > 1."
-  (let ((base-choices '("pending" "addressed" "dismissed" "skip")))
-    (if (> comment-order 1)
-        (append '("merge") base-choices)
-      base-choices)))
+(defun gnus-reviews--get-status-choices (initial)
+  (let ((base-choices '("PENDING" "REJECTED" "DONE" "skip")))
+    (if initial
+        base-choices
+      (cons "merge" base-choices))))
 
 ;;; Core Functions
 
@@ -794,38 +779,15 @@ Also increases the score for the thread to boost visibility."
 
 (defun gnus-reviews--process-patch-review-helper (target-group)
   "Helper function to process a patch review and copy to TARGET-GROUP.
-Extracts and tracks individual comments, ticks the article if there are
-pending comments, and copies it to the specified target group for follow-up."
+Extract and track individual comments, tick the article if there are
+pending comments, and copy it to the specified target group for follow-up."
   (unless (gnus-reviews-is-review-email-p)
     (error "Current article is not a review email"))
   (gnus-reviews--ensure-groups)
-  ;; Extract and track comments from the review
-  (gnus-reviews-extract-and-track-comments)
-  ;; Increase score for the subthread to boost visibility
   (gnus-reviews-increase-score)
-  ;; Check for pending comments and tick only if found
-  (let* ((article-id (gnus-reviews--current-article-id))
-         (tracked-comments (gnus-reviews-get-comments-for-article article-id))
-         (pending-count (cl-count-if (lambda (comment)
-                                      (eq (plist-get (cdr comment) :status) 'pending))
-                                    tracked-comments))
-         (total-count (length tracked-comments)))
-    ;; Tick the article only if there are pending comments
-    (when (> pending-count 0)
-      (gnus-summary-mark-article nil gnus-ticked-mark))
-    ;; Copy to target group
-    (gnus-summary-copy-article nil target-group)
-    ;; Show feedback about what was processed
-    (cond
-     ((> pending-count 0)
-      (message "Processed patch review: %d pending comments (of %d total), ticked and copied to %s"
-               pending-count total-count target-group))
-     ((> total-count 0)
-      (message "Processed patch review: %d comments tracked (none pending), copied to %s"
-               total-count target-group))
-     (t
-      (message "Processed patch review: no comments found, copied to %s"
-               target-group)))))
+  (when (> (gnus-reviews-extract-and-track-comments) 0)
+    (gnus-summary-mark-article nil gnus-ticked-mark))
+  (gnus-summary-copy-article nil target-group))
 
 ;;;###autoload
 (defun gnus-reviews-process-my-patch-review ()
@@ -895,114 +857,80 @@ the current article and all articles with the same core subject
       (when parts
         (message "Boosted %s score by %d" (string-join (nreverse parts) " and ") score)))))
 
+(defun gnus-reviews--author ()
+  (let* ((author-from (gnus-reviews--article-header #'mail-header-from "From"))
+         (author-name (when author-from
+                        (string-trim
+                         (if (string-match "^\\([^<]+\\)\\s-*<" author-from)
+                             (match-string 1 author-from)
+                           author-from))))
+         (author-email (when author-from
+                         (if (string-match "<\\([^>]+\\)>" author-from)
+                             (match-string 1 author-from)
+                           author-from))))
+    (cons author-name author-email)))
+
 ;;;###autoload
 (defun gnus-reviews-extract-and-track-comments ()
   "Extract individual comments from current article and assign status to each."
   (interactive)
-  (when (gnus-reviews-is-review-email-p)
-    (let* (;; Extract author information FIRST before any context changes
-           (author-from (gnus-reviews--article-header #'mail-header-from "From"))
-           (author-name (when author-from
-                          (if (string-match "^\\([^<]+\\)\\s-*<" author-from)
-                              (string-trim (match-string 1 author-from))
-                            (string-trim author-from))))
-           (author-email (when author-from
-                           (if (string-match "<\\([^>]+\\)>" author-from)
-                               (match-string 1 author-from)
-                             author-from)))
-           (review-newsgroup-name (and (boundp 'gnus-newsgroup-name) gnus-newsgroup-name))
-           ;; Now extract other information
-           (comments (gnus-reviews--parse-individual-comments))
-           (tracked-count 0)
-           (article-id (gnus-reviews--current-article-id))
-           (existing-comments (gnus-reviews-get-comments-for-article article-id)))
-      (if comments
-          (progn
-            (message "Found %d individual comments to process..." (length comments))
-            (let ((comment-order 1))
-              (dolist (comment comments)
-                (let* ((text (nth 0 comment))
-                       (context (nth 3 comment))
-                       (display-text (if context
-                                         (format "Context: %s\nComment: %s"
-                                                 context
-                                                 (substring text 0 (min 100 (length text))))
-                                       (substring text 0 (min 100 (length text)))))
-                       ;; Check if this comment already exists in the database
-                       (existing-comment (cl-find-if
-                                          (lambda (c) (string= (plist-get (cdr c) :content) text))
-                                          existing-comments))
-                       (existing-status (when existing-comment
-                                          (plist-get (cdr existing-comment) :status)))
-                       (default-status (when existing-status
-                                         (symbol-name existing-status)))
-                       ;; Get dynamic status choices based on comment order
-                       (status-choices (gnus-reviews--get-status-choices comment-order))
-                       (prompt-text (if existing-status
-                                        (format "Status for comment [EXISTING: %s]: %s\n> "
-                                                existing-status display-text)
-                                      (format "Status for comment: %s\n> " display-text)))
-                       (status (completing-read prompt-text status-choices nil t nil nil default-status)))
-                  (cond
-                   ((string= status "skip")
-                    ;; Skip this comment entirely
-                    nil)
-                   ((string= status "merge")
-                    ;; Merge with preceding comment
-                    (if (> comment-order 1)
-                        (let* ((preceding-comment-id (gnus-reviews--generate-comment-id article-id (1- comment-order)))
-                               (preceding-comment (cl-find-if
-                                                   (lambda (c) (string= (car c) preceding-comment-id))
-                                                   existing-comments)))
-                          (if preceding-comment
-                              (let* ((preceding-content (plist-get (cdr preceding-comment) :content))
-                                     (merged-content (concat preceding-content "\n\n" text)))
-                                (gnus-reviews-update-comment-content article-id preceding-comment-id merged-content)
-                                (message "Merged comment with preceding comment %s" preceding-comment-id)
-                                (cl-incf tracked-count))
-                            (message "No preceding comment found to merge with, tracking as new comment")
-                            (gnus-reviews-track-individual-comment text 'pending comment-order context author-name author-email review-newsgroup-name)
-                            (cl-incf tracked-count)))
-                      (message "No preceding comment to merge with (this is the first comment), tracking as new comment")
-                      (gnus-reviews-track-individual-comment text 'pending comment-order context author-name author-email review-newsgroup-name)
-                      (cl-incf tracked-count)))
-                   (existing-comment
-                    ;; Update existing comment status if it changed
-                    (let ((new-status (intern status)))
-                      (unless (eq existing-status new-status)
-                        (gnus-reviews-update-comment-status article-id (car existing-comment) new-status)
-                        (cl-incf tracked-count))))
-                   (t
-                    ;; Track new comment with specified status
-                    (gnus-reviews-track-individual-comment text (intern status) comment-order context author-name author-email review-newsgroup-name)
-                    (cl-incf tracked-count)))
-                  (cl-incf comment-order))))
-            (gnus-reviews-increase-score)
-            (message "Tracked %d individual comments" tracked-count))
-        (message "No individual comments found in this article")))))
+  (unless (gnus-reviews-is-review-email-p)
+    (error "Not a review e-mail"))
+  (let ((comments (gnus-reviews--parse-individual-comments))
+        (n-pending-comments 0))
+    (if comments
+        (progn
+          (let ((preceding-comment nil)
+                (processed-comments '()))
+            (dolist (comment comments)
+              (let* ((text (nth 0 comment))
+                     (context (nth 3 comment))
+                     (display-text (if context
+                                       (format "Context: %s\nComment: %s"
+                                               context
+                                               (substring text 0 (min 100 (length text))))
+                                     (substring text 0 (min 100 (length text)))))
+                     (status-choices (gnus-reviews--get-status-choices (not preceding-comment)))
+                     (prompt-text (format "Status for comment \"%s\": " display-text))
+                     (status (completing-read prompt-text status-choices nil t)))
+                (cond
+                 ((string= status "skip")
+                  nil)
+                 ((string= status "merge")
+                  (unless preceding-comment
+                    (error "No preceding comment to merge with"))
+                  (setcar preceding-comment (concat (car preceding-comment) "\n\n" text)))
+                 (t
+                  (let ((processed (list text context status)))
+                    (push processed processed-comments)
+                    (setq preceding-comment processed))))))
+            (let* ((author (gnus-reviews--author))
+                   (author-name (car author))
+                   (author-email (cdr author)))
+             (dolist (comment (nreverse processed-comments))
+               (cl-destructuring-bind (text context status) comment
+                 (gnus-reviews-track-individual-comment text status context author-name author-email)
+                 (when (string= status "PENDING")
+                   (cl-incf n-pending-comments))))))
+          (gnus-reviews-increase-score))
+      (message "No comments found in this article"))
+    n-pending-comments))
 
 ;;;###autoload
 (defun gnus-reviews-mark-region-as-comment (start end status)
   "Mark the selected region as an individual comment.
 START and END define the region.
-STATUS should be one of: pending, addressed, dismissed."
+STATUS should be one of: \"PENDING\", \"REJECTED\", \"DONE\"."
   (interactive (list (region-beginning)
                      (region-end)
                      (completing-read "Comment status: "
-                                      '("pending" "addressed" "dismissed")
+                                      '("PENDING" "REJECTED" "DONE")
                                       nil t)))
-  (let* ((status-symbol (intern status))
-         (comment-text (buffer-substring-no-properties start end))
-         (all-comments (gnus-reviews--parse-individual-comments))
-         (comment-order (1+ (cl-position-if (lambda (comment)
-                                              (>= start (nth 1 comment)))
-                                            all-comments
-                                            :from-end t)))
-         (comment-id (gnus-reviews-track-individual-comment
-                      comment-text status-symbol comment-order nil)))
-    (message "Tracked comment %s as %s: %s"
-             comment-id status
-             (substring comment-text 0 (min 50 (length comment-text))))))
+  (let* ((text (buffer-substring-no-properties start end))
+         (author (gnus-reviews--author))
+         (author-name (car author))
+         (author-email (cdr author)))
+    (gnus-reviews-track-individual-comment text status nil author-name author-email)))
 
 ;; Provide the package
 (provide 'gnus-reviews)
