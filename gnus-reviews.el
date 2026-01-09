@@ -1,8 +1,9 @@
 ;;; gnus-reviews.el --- Email-based code review management for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2025 Red Hat, Inc.
+;; Copyright (C) 2025-2026 Red Hat, Inc.
 
 ;; Author: Claude Code <noreply@anthropic.com>
+;; Author: Milan Zamazal <mzamazal@redhat.com>
 ;; Version: 1.0.0
 ;; Package-Requires: ((emacs "26.1") (gnus "5.13"))
 ;; Keywords: mail, gnus, code-review, development
@@ -257,7 +258,7 @@ COMMENT-DATA is the comment property list."
       ;; Patch doesn't exist, need to create hierarchy
       (let* ((thread-id (plist-get comment-data :thread-id))
              ;; Get patch info and title from the patch email
-             (patch-info (gnus-reviews--extract-patch-info-from-thread-root patch-email-id))
+             (patch-info (gnus-reviews-extract-patch-info-from patch-email-id))
              (patch-title (if patch-info
                               (let ((series-num (plist-get patch-info :series-num))
                                     (series-total (plist-get patch-info :series-total))
@@ -313,24 +314,20 @@ COMMENT-DATA is the comment property list."
   "Get the user's full name for patch identification."
   (or gnus-reviews-user-name user-full-name))
 
-;;; Utility Functions
+;;; Article and thread utilities
 
-(defun gnus-reviews--extract-patch-info-from-thread-root (thread-id)
-  "Extract patch information from the thread root article identified by THREAD-ID.
-Returns a plist with :series-num, :series-total, :version, :subject, or nil if not found."
-  (when thread-id
-    (condition-case nil
-        ;; Try to refer to the thread root article and extract patch info
-        (save-excursion
-          (when (and (boundp 'gnus-summary-buffer)
-                     gnus-summary-buffer
-                     (buffer-live-p gnus-summary-buffer))
-            (with-current-buffer gnus-summary-buffer
-              ;; Try to find and refer to the article by Message-ID
-              (when (gnus-summary-refer-article thread-id)
-                ;; Extract patch info from the referred article
-                (gnus-reviews-extract-patch-info)))))
-      (error nil))))
+(defmacro gnus-reviews--in-summary-buffer (&rest body)
+  `(when (buffer-live-p gnus-summary-buffer)
+     (with-current-buffer gnus-summary-buffer
+       ,@body)))
+
+(defmacro gnus-reviews--with-article (message-id &rest body)
+  (let (($current-id (gensym)))
+    `(let ((,$current-id (gnus-reviews--current-article-id)))
+       (when (and ,$current-id
+                  (gnus-summary-refer-article ,message-id))
+         (prog1 (progn ,@body)
+           (gnus-summary-refer-article ,$current-id))))))
 
 (defun gnus-reviews--article-header (func field)
   (cond
@@ -352,104 +349,26 @@ Returns a plist with :series-num, :series-total, :version, :subject, or nil if n
       (gnus-fetch-field field)))))
 
 (defun gnus-reviews--current-article-id ()
-  "Return the Message-ID of the current article."
   (gnus-reviews--article-header #'mail-header-id "Message-ID"))
 
 (defun gnus-reviews--current-thread-id ()
-  "Get the thread ID of the current article.
-Uses References headers to determine thread membership by finding the
-top-most article in the thread, falls back to Message-ID if no
-References header is available."
-  (or (when-let ((refs (gnus-reviews--article-header #'mail-header-references "References")))
-        (unless (equal refs "")
-          ;; Split references and clean up Message-IDs, then get the first (thread root)
-          (let ((ref-list (mapcar #'string-trim
-                                  (split-string refs "[ \t\n]+" t))))
-            (when ref-list
-              ;; Remove angle brackets if present and get the thread root
-              (replace-regexp-in-string "^<\\|>$" "" (car ref-list))))))
+  (or (car (gnus-reviews--current-article-references))
       (gnus-reviews--current-article-id)))
 
+(defun gnus-reviews--current-article-references ()
+  (mapcar (lambda (s)
+            (replace-regexp-in-string "^<\\|>$" "" s))
+          (split-string (or (gnus-reviews--article-header #'mail-header-references "References")
+                            "")
+                        "[ \t\n]+" t)))
+
 (defun gnus-reviews--find-patch-email-id ()
-  "Find the patch email that the current review is commenting on.
-Walks up the References chain to find the first email that is not a reply
-(doesn't have \"Re:\" in subject). Returns the Message-ID of that patch email."
-  (let ((current-id (gnus-reviews--current-article-id))
-        (subject (gnus-reviews--article-header #'mail-header-subject "Subject")))
-    ;; If current article doesn't have "Re:" in subject, it might be the patch itself
-    (if (and subject (not (string-match-p "^\\s-*Re:" subject)))
-        ;; This is not a reply, so it's likely the patch email
-        current-id
-      ;; This is a reply, walk up the References chain to find the patch
-      (gnus-reviews--find-patch-from-references))))
-
-(defun gnus-reviews--find-patch-from-references ()
-  "Find the patch email by walking up the References chain.
-Uses the References header to find the first email that is not a reply."
-  (let ((refs (gnus-reviews--article-header #'mail-header-references "References")))
-    (if (and refs (not (equal refs "")))
-        ;; Parse References header and walk through Message-IDs
-        (let ((ref-list (mapcar (lambda (ref)
-                                  (string-trim (replace-regexp-in-string "^<\\|>$" "" ref)))
-                                (split-string refs "[ \t\n]+" t))))
-          (when ref-list
-            ;; Walk through References in reverse order (most recent first)
-            ;; Skip the last one as it's usually the immediate parent
-            (gnus-reviews--check-references-for-patch (reverse ref-list))))
-      ;; No References header, fall back to current article
-      (gnus-reviews--current-article-id))))
-
-(defun gnus-reviews--check-references-for-patch (message-ids)
-  "Check MESSAGE-IDS list to find the first non-reply (patch) email."
-  (when message-ids
-    (condition-case nil
-        (save-excursion
-          (when (and (boundp 'gnus-summary-buffer)
-                     gnus-summary-buffer
-                     (buffer-live-p gnus-summary-buffer))
-            (with-current-buffer gnus-summary-buffer
-              ;; Try each Message-ID until we find a non-reply
-              (let ((found-patch nil))
-                (dolist (msg-id message-ids)
-                  (when (and (not found-patch) msg-id)
-                    (when (gnus-summary-refer-article msg-id)
-                      (let ((subject (gnus-reviews--article-header #'mail-header-subject "Subject")))
-                        (when (and subject (not (string-match-p "^\\s-*Re:" subject)))
-                          ;; Found a non-reply, this is likely the patch
-                          (setq found-patch msg-id))))))
-                ;; Return the found patch or fallback to first reference
-                (or found-patch (car message-ids))))))
-      (error
-       ;; If we can't retrieve emails, fall back to first reference
-       (car message-ids)))))
-
-(defun gnus-reviews--walk-up-reply-chain-for-patch (message-id)
-  "Walk up the reply chain starting from MESSAGE-ID to find the patch email.
-Returns the Message-ID of the first email in the chain that is not a reply."
-  (when message-id
-    (condition-case nil
-        (save-excursion
-          (when (and (boundp 'gnus-summary-buffer)
-                     gnus-summary-buffer
-                     (buffer-live-p gnus-summary-buffer))
-            (with-current-buffer gnus-summary-buffer
-              ;; Try to refer to the article by Message-ID
-              (when (gnus-summary-refer-article message-id)
-                (let ((subject (gnus-with-article-buffer (gnus-fetch-field "Subject")))
-                      (parent-reply-to (gnus-with-article-buffer
-                                         (string-trim
-                                          (or (gnus-fetch-field "In-Reply-To") "")))))
-                  (if (and subject (not (string-match-p "^\\s-*Re:" subject)))
-                      ;; Found a non-reply, this is the patch email
-                      message-id
-                    ;; Still a reply, continue walking up
-                    (if (and parent-reply-to (> (length parent-reply-to) 0))
-                        (gnus-reviews--walk-up-reply-chain-for-patch parent-reply-to)
-                      ;; No more parents, use this as fallback
-                      message-id)))))))
-      (error
-       ;; If we can't retrieve the email, use the current message-id as fallback
-       message-id))))
+  (if (gnus-reviews-is-patch-email-p)
+      (gnus-reviews--current-article-id)
+    (cl-find-if (lambda (message-id)
+                  (gnus-reviews--with-article message-id
+                    (gnus-reviews-is-patch-email-p)))
+                (nreverse (gnus-reviews--current-article-references)))))
 
 (defun gnus-reviews--current-article-title ()
   "Get the title/subject of the current article.
@@ -606,6 +525,10 @@ Returns a plist with :series-num, :series-total, :version, :subject."
                 :series-total 1
                 :subject (string-trim (match-string 2 subject))
                 :rfc t)))))))
+
+(defun gnus-reviews-extract-patch-info-from (message-id)
+  (gnus-reviews--with-article message-id
+    (gnus-reviews-extract-patch-info)))
 
 ;;; Comment Tracking System
 
