@@ -82,11 +82,6 @@
   :type 'integer
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-auto-expire-days 30
-  "Number of days after which completed reviews are auto-expired."
-  :type 'integer
-  :group 'gnus-reviews)
-
 (defcustom gnus-reviews-org-file "~/gnus-reviews.org"
   "Org file to store review data in hierarchical format.
 The file is organized hierarchically by patch series, versions,
