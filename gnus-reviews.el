@@ -77,11 +77,6 @@
   :type 'string
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-finished-group (concat gnus-reviews-base-group ".finished")
-  "Group for completed reviews."
-  :type 'string
-  :group 'gnus-reviews)
-
 (defcustom gnus-reviews-score-increase 1000
   "Score increase for review-relevant articles."
   :type 'integer
@@ -323,8 +318,7 @@ COMMENT-DATA is the comment property list."
           (list gnus-reviews-base-group
                 gnus-reviews-own-patches-group
                 gnus-reviews-to-review-group
-                gnus-reviews-watching-group
-                gnus-reviews-finished-group))))
+                gnus-reviews-watching-group))))
 
 ;;; Validation and Initialization Functions
 
@@ -1528,8 +1522,7 @@ are articles with processed marks, tick them all."
                           (_ gnus-reviews-to-review-group)))
           (all-groups (list gnus-reviews-own-patches-group
                             gnus-reviews-to-review-group
-                            gnus-reviews-watching-group
-                            gnus-reviews-finished-group)))
+                            gnus-reviews-watching-group)))
      (list (completing-read
             (format "Copy to group (default %s): " default-group)
             all-groups nil t nil nil default-group))))
