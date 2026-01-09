@@ -229,35 +229,26 @@ Returns the position of the patch heading."
       (point))))
 
 (defun gnus-reviews--store-comment-in-org (patch-email-id comment-data)
-  "Store a single comment in the Org file.
-PATCH-EMAIL-ID is the patch email's message ID (article nodes represent patches, not reviews).
-COMMENT-DATA is the comment property list."
   (gnus-reviews--with-org-buffer
-    ;; Find or create patch node using the patch email's Message-ID
-    (if-let ((patch-pos (gnus-reviews--find-org-node-by-id patch-email-id)))
-        ;; Patch exists, add comment
-        (gnus-reviews--add-comment-to-patch patch-pos comment-data)
-      ;; Patch doesn't exist, need to create hierarchy
-      (let* ((thread-id (plist-get comment-data :thread-id))
-             ;; Get patch info and title from the patch email
-             (patch-info (gnus-reviews-extract-patch-info-from patch-email-id))
-             (patch-title (if patch-info
-                              (let ((series-num (plist-get patch-info :series-num))
-                                    (series-total (plist-get patch-info :series-total))
-                                    (clean-subject (plist-get patch-info :subject)))
-                                ;; Include series information if this is part of a multi-patch series
-                                (if (and series-num series-total (> series-total 1))
-                                    (format "[#%d/%d] %s" series-num series-total clean-subject)
-                                  clean-subject))
-                            "Unknown Patch"))
-             (series-subject (or (plist-get patch-info :subject) patch-title))
-             (version (or (plist-get patch-info :version) "1")))
-        ;; Create the hierarchy: series -> version -> patch -> comment
-        ;; Use the patch email's Message-ID as the patch node identifier
-        (let* ((series-pos (gnus-reviews--create-series-node series-subject))
-               (version-pos (gnus-reviews--create-version-node series-pos version thread-id))
-               (patch-pos (gnus-reviews--create-patch-node version-pos patch-email-id patch-title)))
-          (gnus-reviews--add-comment-to-patch patch-pos comment-data))))))
+    (let ((patch-pos (gnus-reviews--find-org-node-by-id patch-email-id)))
+      (unless patch-pos
+        (let* ((thread-id (plist-get comment-data :thread-id))
+               (series-info (gnus-reviews-extract-patch-info-from thread-id))
+               (patch-info (gnus-reviews-extract-patch-info-from patch-email-id))
+               (patch-title (if patch-info
+                                (let ((series-num (plist-get patch-info :series-num))
+                                      (series-total (plist-get patch-info :series-total))
+                                      (clean-subject (plist-get patch-info :subject)))
+                                  (if (and series-num series-total (> series-total 1))
+                                      (format "[#%d/%d] %s" series-num series-total clean-subject)
+                                    clean-subject))
+                              "Unknown Patch"))
+               (series-subject (or (plist-get series-info :subject) patch-title))
+               (version (or (plist-get patch-info :version) "1"))
+               (series-pos (gnus-reviews--create-series-node series-subject))
+               (version-pos (gnus-reviews--create-version-node series-pos version thread-id)))
+          (setq patch-pos (gnus-reviews--create-patch-node version-pos patch-email-id patch-title))))
+      (gnus-reviews--add-comment-to-patch patch-pos comment-data))))
 
 ;;; Group Management Functions
 
