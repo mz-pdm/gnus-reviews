@@ -130,7 +130,7 @@ above each comment."
   (unless (get-file-buffer gnus-reviews-org-file)
     (find-file-noselect gnus-reviews-org-file)))
 
-(defmacro with-gnus-reviews-org-buffer (&rest body)
+(defmacro gnus-reviews--with-org-buffer (&rest body)
   "Execute BODY with the gnus-reviews Org file buffer current."
   `(progn
      (gnus-reviews--ensure-org-file)
@@ -141,7 +141,7 @@ above each comment."
 (defun gnus-reviews--find-org-node-by-id (custom-id)
   "Find Org node with CUSTOM-ID in the reviews file.
 Returns the position of the heading or nil if not found."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (save-excursion
       (condition-case nil
           (progn
@@ -153,7 +153,7 @@ Returns the position of the heading or nil if not found."
 (defun gnus-reviews--create-series-node (series-subject)
   "Create a new series node for SERIES-SUBJECT.
 Returns the position of the created series heading."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (let* ((clean-subject (replace-regexp-in-string "[^a-zA-Z0-9-]" "_" series-subject))
            (series-id (format "series-%s" clean-subject)))
       ;; Check if series already exists
@@ -174,7 +174,7 @@ Returns the position of the created series heading."
 (defun gnus-reviews--add-comment-to-patch (patch-pos comment-data)
   "Add a comment under patch at PATCH-POS.
 Returns the position after the comment."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (goto-char patch-pos)
     (org-end-of-subtree t nil)
     (let ((status (plist-get comment-data :status))
@@ -204,7 +204,7 @@ Returns the position after the comment."
 (defun gnus-reviews--create-version-node (series-pos version thread-id)
   "Create a version node under series at SERIES-POS.
 Returns the position of the version heading."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (goto-char series-pos)
     (let* ((version-title (format "v%s" version))
            (version-id (format "version-%s-%s" thread-id version)))
@@ -240,7 +240,7 @@ Returns an Org link string or nil if link cannot be created."
 (defun gnus-reviews--create-patch-node (version-pos article-id article-title)
   "Create a patch node under version at VERSION-POS.
 Returns the position of the patch heading."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (goto-char version-pos)
     (let ((gnus-link (gnus-reviews--create-gnus-link article-id)))
       ;; Create patch node under version
@@ -261,7 +261,7 @@ Returns the position of the patch heading."
   "Store a single comment in the Org file.
 PATCH-EMAIL-ID is the patch email's message ID (article nodes represent patches, not reviews).
 COMMENT-DATA is the comment property list."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     ;; Find or create patch node using the patch email's Message-ID
     (if-let ((patch-pos (gnus-reviews--find-org-node-by-id patch-email-id)))
         ;; Patch exists, add comment
@@ -753,7 +753,7 @@ AUTHOR-NAME, AUTHOR-EMAIL, REVIEW-NEWSGROUP-NAME are author information from the
 (defun gnus-reviews--extract-comments-from-org-patch (article-id)
   "Extract all comments for ARTICLE-ID from the Org file.
 Returns a list of (comment-id . comment-plist) entries."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
       (save-excursion
         (goto-char patch-pos)
@@ -813,7 +813,7 @@ Returns a list of (comment-id . comment-plist) entries."
 
 (defun gnus-reviews--update-comment-status-in-org (article-id comment-id new-status)
   "Update the status of COMMENT-ID in the Org file to NEW-STATUS."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
       (save-excursion
         (goto-char patch-pos)
@@ -832,7 +832,7 @@ Returns a list of (comment-id . comment-plist) entries."
 
 (defun gnus-reviews--update-comment-content-in-org (article-id comment-id new-content)
   "Update the content of COMMENT-ID in the Org file to NEW-CONTENT."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
       (save-excursion
         (goto-char patch-pos)
@@ -901,7 +901,7 @@ Returns a list of status strings, including `merge' only if comment-order > 1."
 (defun gnus-reviews--get-all-articles-from-org ()
   "Get all article IDs that have comments in the Org file.
 Returns a list of article IDs."
-  (with-gnus-reviews-org-buffer
+  (gnus-reviews--with-org-buffer
     (let ((article-ids '()))
       (save-excursion
         (goto-char (point-min))
@@ -1076,7 +1076,7 @@ Process marks indicate articles marked for batch processing."
            (comment-id (cadr comment-info)))
       (when (yes-or-no-p (format "Delete comment %s? " comment-id))
         ;; Remove comment from Org file
-        (with-gnus-reviews-org-buffer
+        (gnus-reviews--with-org-buffer
           (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
             (save-excursion
               (goto-char patch-pos)
@@ -1283,7 +1283,7 @@ SHOW-ARTICLE-TITLE if non-nil, displays the article title above the comment."
         (article-id (car (split-string comment-id "#"))))
     ;; Display article title if requested
     (when show-article-title
-      (let ((article-title (with-gnus-reviews-org-buffer
+      (let ((article-title (gnus-reviews--with-org-buffer
                              (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
                                (save-excursion
                                  (goto-char patch-pos)
@@ -1411,7 +1411,7 @@ PENDING-ONLY if non-nil indicates this buffer shows only pending comments."
         (let ((article-ids (sort (hash-table-keys grouped-comments) #'string<)))
           (dolist (article-id article-ids)
             (let* ((article-comments (nreverse (gethash article-id grouped-comments)))
-                   (article-title (with-gnus-reviews-org-buffer
+                   (article-title (gnus-reviews--with-org-buffer
                                     (when-let ((patch-pos (gnus-reviews--find-org-node-by-id article-id)))
                                       (save-excursion
                                         (goto-char patch-pos)
