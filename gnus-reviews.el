@@ -118,12 +118,10 @@ above each comment."
 Returns the position of the heading or nil if not found."
   (gnus-reviews--with-org-buffer
     (save-excursion
-      (condition-case nil
-          (progn
-            (org-link-search (concat "#" custom-id))
-            (org-back-to-heading t)
-            (point))
-        (error nil)))))
+      (ignore-errors
+        (org-link-search (concat "#" custom-id))
+        (org-back-to-heading t)
+        (point)))))
 
 (defun gnus-reviews--create-series-node (series-subject)
   "Create a new series node for SERIES-SUBJECT.
