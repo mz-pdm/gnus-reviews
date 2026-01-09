@@ -25,18 +25,6 @@
 ;;; Commentary:
 
 ;; This package provides tools for managing email-based code reviews in Gnus.
-;; It helps organize review messages into appropriate groups, track individual
-;; comments and their status, and manage the review lifecycle.
-;;
-;; Main features:
-;; - Automatic classification of patch emails vs. review comments
-;; - Organization of messages into purpose-specific Gnus groups
-;; - Comment tracking and status management
-;; - Review pruning and cleanup
-;; - Score boosting for review-relevant articles
-;;
-;; While designed with libcamera development in mind, this package is generic
-;; and can be used with any email-based code review workflow.
 
 ;;; Code:
 
