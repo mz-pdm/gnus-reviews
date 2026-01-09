@@ -289,17 +289,19 @@ COMMENT-DATA is the comment property list."
 ;;; Article and thread utilities
 
 (defmacro gnus-reviews--in-summary-buffer (&rest body)
-  `(when (buffer-live-p gnus-summary-buffer)
-     (with-current-buffer gnus-summary-buffer
-       ,@body)))
+  `(if (buffer-live-p gnus-summary-buffer)
+       (with-current-buffer gnus-summary-buffer
+         ,@body)
+     (error "No Gnus summary buffer")))
 
 (defmacro gnus-reviews--with-article (message-id &rest body)
   (let (($current-id (gensym)))
-    `(let ((,$current-id (gnus-reviews--current-article-id)))
-       (when (and ,$current-id
-                  (gnus-summary-refer-article ,message-id))
-         (prog1 (progn ,@body)
-           (gnus-summary-refer-article ,$current-id))))))
+    `(gnus-reviews--in-summary-buffer
+       (let ((,$current-id (gnus-reviews--current-article-id)))
+         (when (and ,$current-id
+                    (gnus-summary-refer-article ,message-id))
+           (prog1 (progn ,@body)
+             (gnus-summary-refer-article ,$current-id)))))))
 
 (defun gnus-reviews--article-header (func field)
   (cond
