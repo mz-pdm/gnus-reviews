@@ -191,7 +191,6 @@ Returns the position after the comment."
           (content (plist-get comment-data :content))
           (context (plist-get comment-data :context))
           (author-name (plist-get comment-data :author-name))
-          (author-email (plist-get comment-data :author-email))
           (review-email-id (plist-get comment-data :review-email-id))
           (review-newsgroup-name (plist-get comment-data :review-newsgroup-name)))
       ;; Add context as quote block if present
@@ -397,7 +396,7 @@ References header is available."
 (defun gnus-reviews--find-patch-email-id ()
   "Find the patch email that the current review is commenting on.
 Walks up the References chain to find the first email that is not a reply
-(doesn't have 'Re:' in subject). Returns the Message-ID of that patch email."
+(doesn't have \"Re:\" in subject). Returns the Message-ID of that patch email."
   (let ((current-id (gnus-reviews--current-article-id))
         (subject (gnus-reviews--article-header #'mail-header-subject "Subject")))
     ;; If current article doesn't have "Re:" in subject, it might be the patch itself
