@@ -78,20 +78,6 @@ and individual patches with comments stored as Org blocks."
   :type 'file
   :group 'gnus-reviews)
 
-(defcustom gnus-reviews-user-email nil
-  "Email address to use for identifying own patches.
-If nil, uses `user-mail-address'."
-  :type '(choice (const :tag "Use user-mail-address" nil)
-                 string)
-  :group 'gnus-reviews)
-
-(defcustom gnus-reviews-user-name nil
-  "Full name to use for identifying own patches.
-If nil, uses `user-full-name'."
-  :type '(choice (const :tag "Use user-full-name" nil)
-                 string)
-  :group 'gnus-reviews)
-
 (defcustom gnus-reviews-auto-create-groups t
   "Whether to automatically create review groups if they don't exist."
   :type 'boolean
@@ -304,16 +290,6 @@ COMMENT-DATA is the comment property list."
                 gnus-reviews-to-review-group
                 gnus-reviews-watching-group))))
 
-;;; Validation and Initialization Functions
-
-(defun gnus-reviews--get-user-email ()
-  "Get the user's email address for patch identification."
-  (or gnus-reviews-user-email user-mail-address))
-
-(defun gnus-reviews--get-user-name ()
-  "Get the user's full name for patch identification."
-  (or gnus-reviews-user-name user-full-name))
-
 ;;; Article and thread utilities
 
 (defmacro gnus-reviews--in-summary-buffer (&rest body)
@@ -438,13 +414,10 @@ while preserving series information (e.g., 1/3) from any email that has it."
 (defun gnus-reviews-is-own-patch-email-p ()
   "Return non-nil if current article is a patch by the user."
   (gnus-with-article-buffer
-    (let ((from (gnus-fetch-field "From"))
-          (user-email (gnus-reviews--get-user-email))
-          (user-name (gnus-reviews--get-user-name)))
-      (and from
-           (or (and user-email (string-match (regexp-quote user-email) from))
-               (and user-name (string-match (regexp-quote user-name) from)))
-           (gnus-reviews-is-patch-email-p)))))
+    (when-let ((from (gnus-fetch-field "From")))
+      (or (and user-mail-address (string-match (regexp-quote user-mail-address) from))
+          (and user-full-name (string-match (regexp-quote user-full-name) from)))
+      (gnus-reviews-is-patch-email-p))))
 
 (defun gnus-reviews-is-review-email-p ()
   "Return non-nil if current article is a review email."
@@ -1405,11 +1378,9 @@ and displaying a formatted message."
 (defun gnus-reviews-add-reviewed-by-tag ()
   "Insert a Reviewed-by tag with user's name and email at point."
   (interactive)
-  (let ((name (gnus-reviews--get-user-name))
-        (email (gnus-reviews--get-user-email)))
-    (if (and name email)
-        (insert (format "Reviewed-by: %s <%s>\n" name email))
-      (message "User name or email not configured. See `gnus-reviews-user-name' and `gnus-reviews-user-email'."))))
+  (if (and user-full-name user-mail-address)
+      (insert (format "Reviewed-by: %s <%s>\n" user-full-name user-mail-address))
+    (error "User name or email not configured.")))
 
 ;;;###autoload
 (defun gnus-reviews-copy-to-group (&optional group)
