@@ -276,7 +276,7 @@ COMMENT-DATA is the comment property list."
                                       (clean-subject (plist-get patch-info :subject)))
                                   ;; Include series information if this is part of a multi-patch series
                                   (if (and series-num series-total (> series-total 1))
-                                      (format "[%d/%d] %s" series-num series-total clean-subject)
+                                      (format "[#%d/%d] %s" series-num series-total clean-subject)
                                     clean-subject)))
                               "Unknown Patch"))
              (series-subject (or (plist-get patch-info :subject) patch-title))
