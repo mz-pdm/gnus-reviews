@@ -204,13 +204,9 @@ Returns the position of the version heading."
         (point)))))
 
 (defun gnus-reviews--create-gnus-link (article-id)
-  "Create a Gnus link for ARTICLE-ID.
-Returns an Org link string or nil if link cannot be created."
-  (condition-case nil
-      ;; Try to get the group from current context
-      (when (and (boundp 'gnus-newsgroup-name) gnus-newsgroup-name)
-        (format "[[gnus:%s#%s][View in Gnus]]" gnus-newsgroup-name article-id))
-    (error nil)))
+  (if gnus-newsgroup-name
+      (format "[[gnus:%s#%s][View in Gnus]]" gnus-newsgroup-name article-id)
+    (error "No newsgroup active")))
 
 (defun gnus-reviews--create-patch-node (version-pos article-id article-title)
   "Create a patch node under version at VERSION-POS.
