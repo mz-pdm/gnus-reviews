@@ -713,7 +713,6 @@ Process marks indicate articles marked for batch processing."
 This involves ensuring groups exist, collecting thread articles,
 copying them to TARGET-GROUP, boosting the thread score,
 and displaying a formatted message."
-  (interactive)
   (gnus-reviews--ensure-groups)
   (let* ((current-article (gnus-summary-article-number))
          (thread-articles (gnus-reviews--collect-thread-articles))
