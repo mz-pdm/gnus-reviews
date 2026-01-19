@@ -99,7 +99,7 @@ above each comment."
     (with-temp-file gnus-reviews-org-file
       (insert "#+TITLE: Gnus Reviews Database\n")
       (insert "#+DESCRIPTION: Hierarchical review data for email-based code reviews\n")
-      (insert "#+TODO: PENDING | REJECTED DONE\n")
+      (insert "#+TODO: PENDING | DONE REJECTED\n")
       (insert "#+STARTUP: overview\n\n")
       (insert "This file is managed by gnus-reviews.el - you can edit it manually,\n")
       (insert "but be careful with the structure and properties.\n\n")))
