@@ -144,7 +144,7 @@ Returns the position of the created series heading."
         ;; Create new series node at end of file
         (goto-char (point-max))
         (unless (bolp) (insert "\n"))
-        (insert (format "\n* %s\n" series-subject))
+        (insert (format "\n* PENDING %s\n" series-subject))
         (gnus-reviews--insert-properties-block `(("CUSTOM_ID" . ,series-id)
                                                  ("STATUS" . "active")))
         (save-buffer)
@@ -191,14 +191,14 @@ Returns the position of the version heading."
       (if-let ((existing-pos (save-excursion
                                (let ((series-end (save-excursion (org-end-of-subtree t t) (point))))
                                  (when (re-search-forward
-                                        (format "^\\*\\* %s$" (regexp-quote version-title))
+                                        (format "^\\*\\*\\( [A-Z]+\\)? +%s$" (regexp-quote version-title))
                                         series-end t)
                                    (org-back-to-heading t)
                                    (point))))))
           existing-pos
         ;; Create new version node
         (org-end-of-subtree t nil)
-        (insert (format "\n** %s\n" version-title))
+        (insert (format "\n** PENDING %s\n" version-title))
         (gnus-reviews--insert-properties-block `(("CUSTOM_ID" . ,version-id)
                                                  ("VERSION_NUMBER" . ,version)))
         (save-buffer)
@@ -218,7 +218,7 @@ Returns the position of the patch heading."
     (let ((gnus-link (gnus-reviews--gnus-link article-id "Patch e-mail")))
       ;; Create patch node under version
       (org-end-of-subtree t nil)
-      (insert (format "\n*** %s\n" article-title))
+      (insert (format "\n*** PENDING %s\n" article-title))
       (gnus-reviews--insert-properties-block `(("CUSTOM_ID" . ,article-id)
                                                ("ARTICLE_TITLE" . ,article-title)
                                                ("GNUS_LINK" . ,gnus-link)))
