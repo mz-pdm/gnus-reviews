@@ -177,8 +177,8 @@ Returns the position of the created series heading."
       (dolist (line (split-string content "\n"))
         (insert "  " line "\n"))
       (insert "#+END_RESPONSE\n"))
-      (save-buffer)
-      (point)))
+    (save-buffer)
+    (point)))
 
 (defun gnus-reviews--create-version-node (series-pos version thread-id)
   "Create a version node under series at SERIES-POS.
@@ -330,7 +330,7 @@ Returns the position of the patch heading."
       (gnus-reviews--current-article-id)
     (cl-find-if (lambda (message-id)
                   (gnus-reviews--with-article message-id
-                    (gnus-reviews-is-patch-email-p)))
+		    (gnus-reviews-is-patch-email-p)))
                 (nreverse (gnus-reviews--current-article-references)))))
 
 (defun gnus-reviews--current-article-title ()
@@ -745,10 +745,10 @@ are articles with processed marks, tick them all."
   (interactive
    (let* ((type (gnus-reviews-classify-message))
           (default-group (pcase type
-                          ('own-patch gnus-reviews-own-patches-group)
-                          ('review-comment gnus-reviews-to-review-group)
-                          ('patch gnus-reviews-to-review-group)
-                          (_ gnus-reviews-to-review-group)))
+                           ('own-patch gnus-reviews-own-patches-group)
+                           ('review-comment gnus-reviews-to-review-group)
+                           ('patch gnus-reviews-to-review-group)
+                           (_ gnus-reviews-to-review-group)))
           (all-groups (list gnus-reviews-own-patches-group
                             gnus-reviews-to-review-group
                             gnus-reviews-watching-group)))
@@ -906,11 +906,11 @@ the current article and all articles with the same core subject
             (let* ((author (gnus-reviews--author))
                    (author-name (car author))
                    (author-email (cdr author)))
-             (dolist (comment (nreverse processed-comments))
-               (cl-destructuring-bind (text context status) comment
-                 (gnus-reviews-track-individual-comment text status context author-name author-email)
-                 (when (string= status "PENDING")
-                   (cl-incf n-pending-comments))))))
+              (dolist (comment (nreverse processed-comments))
+		(cl-destructuring-bind (text context status) comment
+                  (gnus-reviews-track-individual-comment text status context author-name author-email)
+                  (when (string= status "PENDING")
+                    (cl-incf n-pending-comments))))))
           (gnus-reviews-increase-score))
       (message "No comments found in this article"))
     n-pending-comments))
