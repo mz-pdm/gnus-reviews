@@ -886,6 +886,8 @@ the current article and all articles with the same core subject
                 (processed-comments '()))
             (dolist (comment comments)
               (let* ((text (nth 0 comment))
+                     (start-pos (nth 1 comment))
+                     (end-pos (nth 2 comment))
                      (context (nth 3 comment))
                      (display-text (if context
                                        (format "Context: %s\nComment: %s"
@@ -893,19 +895,27 @@ the current article and all articles with the same core subject
                                                (substring text 0 (min 100 (length text))))
                                      (substring text 0 (min 100 (length text)))))
                      (status-choices (gnus-reviews--get-status-choices (not preceding-comment)))
-                     (prompt-text (format "Status for comment \"%s\": " display-text))
-                     (status (completing-read prompt-text status-choices nil t)))
-                (cond
-                 ((string= status "skip")
-                  nil)
-                 ((string= status "merge")
-                  (unless preceding-comment
-                    (error "No preceding comment to merge with"))
-                  (setcar preceding-comment (concat (car preceding-comment) "\n\n" text)))
-                 (t
-                  (let ((processed (list text context status)))
-                    (push processed processed-comments)
-                    (setq preceding-comment processed))))))
+                     (prompt-text (format "Status for comment \"%s\": " display-text)))
+                ;; Scroll article to show the comment location
+                (when-let ((article-window (get-buffer-window gnus-article-buffer)))
+                  (with-selected-window article-window
+                    (goto-char start-pos)
+                    (recenter)
+                    ;; Highlight the comment region briefly
+                    (when (fboundp 'pulse-momentary-highlight-region)
+                      (pulse-momentary-highlight-region start-pos end-pos))))
+                (let ((status (completing-read prompt-text status-choices nil t)))
+                  (cond
+                   ((string= status "skip")
+                    nil)
+                   ((string= status "merge")
+                    (unless preceding-comment
+                      (error "No preceding comment to merge with"))
+                    (setcar preceding-comment (concat (car preceding-comment) "\n\n" text)))
+                   (t
+                    (let ((processed (list text context status)))
+                      (push processed processed-comments)
+                      (setq preceding-comment processed)))))))
             (let* ((author (gnus-reviews--author))
                    (author-name (car author))
                    (author-email (cdr author)))
