@@ -384,6 +384,20 @@ while preserving series information (e.g., 1/3) from any email that has it."
   :type '(repeat string)
   :group 'gnus-reviews)
 
+(defcustom gnus-reviews-comment-exclusion-patterns
+  '(;; Email reply introductions
+    "^On " " wrote:[ \t]*$" " writes:[ \t]*$"
+    ;; Signature lines
+    "^--" "^___"
+    ;; Common greetings and closings
+    "^[ \t]*\\([Hh]i\\|[Hh]ello\\|[Hh]ey\\|[Dd]ear\\)\\($\\|[ \t,]\\)"
+    "^[ \t]*\\([Rr]egards\\|[Bb]est\\|[Tt]hanks\\|[Tt]hank you\\|[Cc]heers\\|[Ss]incerely\\|[Yy]ours\\)\\( regards\\| wishes\\)?[ \t,]*$")
+  "Patterns for lines to exclude when parsing individual comments.
+Lines matching any of these patterns will not be considered as review comments.
+All patterns are matched case-sensitively."
+  :type '(repeat string)
+  :group 'gnus-reviews)
+
 (defun gnus-reviews--match-patterns (content patterns)
   "Check if CONTENT matches any of the PATTERNS."
   (cl-some (lambda (pattern)
@@ -532,24 +546,10 @@ Returns a list of (content start-pos end-pos context) for each comment."
              ;; Found non-quoted, non-empty line
              ((looking-at "^\\([^>\n].*\\)$")
               (let ((line-text (save-match-data (string-trim (match-string-no-properties 1)))))
-                ;; Exclude signature lines, headers, email reply introductions, and greetings
+                ;; Exclude lines matching configured exclusion patterns
                 (when (and (> (length line-text) 0)
                            (string-match "\\w" line-text)
-                           (not (or
-                                 ;; Email reply introductions
-                                 (string-match-p "^On " line-text)
-                                 (string-match-p " wrote:[ \t]*$" line-text)
-                                 (string-match-p " writes:[ \t]*$" line-text)
-                                 ;; Signature lines
-                                 (string-match-p "^--" line-text)
-                                 (string-match-p "^___" line-text)
-                                 ;; Headers
-                                 (string-match-p "^\\(From\\|Subject\\|Date\\|To\\|Cc\\):" line-text)
-                                 ;; Common greetings and closings (case insensitive)
-                                 (string-match-p "^[ \t]*\\(hi\\|hello\\|hey\\|dear\\)\\($\\|[ \t,]\\)"
-                                                 (downcase line-text))
-                                 (string-match-p "^[ \t]*\\(regards\\|best\\|thanks\\|thank you\\|cheers\\|sincerely\\|yours\\)\\( regards\\| wishes\\)?[ \t,]*$"
-                                                 (downcase line-text)))))
+                           (not (gnus-reviews--match-patterns line-text gnus-reviews-comment-exclusion-patterns)))
                   (when (null comment-start-pos)
                     (setq comment-start-pos (line-beginning-position)))
                   (push line-text comment-lines))))
