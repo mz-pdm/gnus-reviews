@@ -108,6 +108,7 @@ above each comment."
 
 (defmacro gnus-reviews--with-org-buffer (&rest body)
   "Execute BODY with the gnus-reviews Org file buffer current."
+  (declare (indent 0))
   `(progn
      (gnus-reviews--ensure-org-file)
      (with-current-buffer (find-file-noselect gnus-reviews-org-file)
@@ -278,12 +279,14 @@ Returns the position of the patch heading."
 ;;; Article and thread utilities
 
 (defmacro gnus-reviews--in-summary-buffer (&rest body)
+  (declare (indent 0))
   `(if (buffer-live-p gnus-summary-buffer)
        (with-current-buffer gnus-summary-buffer
          ,@body)
      (error "No Gnus summary buffer")))
 
 (defmacro gnus-reviews--with-article (message-id &rest body)
+  (declare (indent 1))
   (let (($current-id (gensym)))
     `(gnus-reviews--in-summary-buffer
        (let ((,$current-id (gnus-reviews--current-article-id)))
