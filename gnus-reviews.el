@@ -91,6 +91,33 @@ above each comment."
   :type 'boolean
   :group 'gnus-reviews)
 
+(defcustom gnus-reviews-patch-patterns
+  '("^\\[PATCH[^]]*\\]" "^\\[RFC[^]]*\\]" "^diff --git" "^---.*\\+\\+\\+" "^Index: ")
+  "Patterns that indicate a message contains a patch."
+  :type '(repeat string)
+  :group 'gnus-reviews)
+
+(defcustom gnus-reviews-review-patterns
+  '("^Re:.*\\[PATCH" "^Re:.*\\[RFC" "Reviewed-by:" "Acked-by:" "Tested-by:"
+    "^On .* wrote:" "> .*" "inline comment")
+  "Patterns that indicate a message is a review comment."
+  :type '(repeat string)
+  :group 'gnus-reviews)
+
+(defcustom gnus-reviews-comment-exclusion-patterns
+  '(;; Email reply introductions
+    "^On " " wrote:[ \t]*$" " writes:[ \t]*$"
+    ;; Signature lines
+    "^--" "^___"
+    ;; Common greetings and closings
+    "^[ \t]*\\([Hh]i\\|[Hh]ello\\|[Hh]ey\\|[Dd]ear\\)\\($\\|[ \t,]\\)"
+    "^[ \t]*\\([Rr]egards\\|[Bb]est\\|[Tt]hanks\\|[Tt]hank you\\|[Cc]heers\\|[Ss]incerely\\|[Yy]ours\\)\\( regards\\| wishes\\)?[ \t,]*$")
+  "Patterns for lines to exclude when parsing individual comments.
+Lines matching any of these patterns will not be considered as review comments.
+All patterns are matched case-sensitively."
+  :type '(repeat string)
+  :group 'gnus-reviews)
+
 ;;; Org File Management Functions
 
 (defun gnus-reviews--ensure-org-file ()
@@ -373,33 +400,6 @@ while preserving series information (e.g., 1/3) from any email that has it."
             clean-subject))))))
 
 ;;; Message Classification
-
-(defcustom gnus-reviews-patch-patterns
-  '("^\\[PATCH[^]]*\\]" "^\\[RFC[^]]*\\]" "^diff --git" "^---.*\\+\\+\\+" "^Index: ")
-  "Patterns that indicate a message contains a patch."
-  :type '(repeat string)
-  :group 'gnus-reviews)
-
-(defcustom gnus-reviews-review-patterns
-  '("^Re:.*\\[PATCH" "^Re:.*\\[RFC" "Reviewed-by:" "Acked-by:" "Tested-by:"
-    "^On .* wrote:" "> .*" "inline comment")
-  "Patterns that indicate a message is a review comment."
-  :type '(repeat string)
-  :group 'gnus-reviews)
-
-(defcustom gnus-reviews-comment-exclusion-patterns
-  '(;; Email reply introductions
-    "^On " " wrote:[ \t]*$" " writes:[ \t]*$"
-    ;; Signature lines
-    "^--" "^___"
-    ;; Common greetings and closings
-    "^[ \t]*\\([Hh]i\\|[Hh]ello\\|[Hh]ey\\|[Dd]ear\\)\\($\\|[ \t,]\\)"
-    "^[ \t]*\\([Rr]egards\\|[Bb]est\\|[Tt]hanks\\|[Tt]hank you\\|[Cc]heers\\|[Ss]incerely\\|[Yy]ours\\)\\( regards\\| wishes\\)?[ \t,]*$")
-  "Patterns for lines to exclude when parsing individual comments.
-Lines matching any of these patterns will not be considered as review comments.
-All patterns are matched case-sensitively."
-  :type '(repeat string)
-  :group 'gnus-reviews)
 
 (defun gnus-reviews--match-patterns (content patterns)
   "Check if CONTENT matches any of the PATTERNS."
