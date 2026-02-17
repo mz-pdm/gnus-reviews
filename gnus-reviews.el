@@ -118,6 +118,12 @@ All patterns are matched case-sensitively."
   :type '(repeat string)
   :group 'gnus-reviews)
 
+(defcustom gnus-reviews-greeting-template "Hi %s,\n\nthank you for the patch.\n\n"
+  "Template for greeting message when replying to patches.
+%s will be replaced with the recipient's first name."
+  :type 'string
+  :group 'gnus-reviews)
+
 ;;; Org File Management Functions
 
 (defun gnus-reviews--ensure-org-file ()
@@ -872,6 +878,24 @@ the current article and all articles with the same core subject
                            author-from))))
     (cons author-name author-email)))
 
+(defun gnus-reviews--extract-first-name (header)
+  "Extract the first name from a mail HEADER like To or From.
+Handles formats like \"First Last <email@domain>\" or \"email@domain\"."
+  (when header
+    (let ((name-part
+           (cond
+            ;; Format: "Full Name <email@domain>"
+            ((string-match "^\\s-*\\([^<]+\\)\\s-*<" header)
+             (string-trim (match-string 1 header)))
+            ;; Format: just "email@domain", use part before @
+            ((string-match "^\\s-*\\([^@]+\\)" header)
+             (string-trim (match-string 1 header)))
+            ;; Fallback
+            (t (string-trim header)))))
+      ;; Extract first word as first name
+      (when (and name-part (> (length name-part) 0))
+        (car (split-string name-part "\\s-+"))))))
+
 ;;;###autoload
 (defun gnus-reviews-extract-and-track-comments ()
   "Extract individual comments from current article and assign status to each."
@@ -943,6 +967,24 @@ STATUS should be one of: \"PENDING\", \"REJECTED\", \"DONE\"."
          (author-name (car author))
          (author-email (cdr author)))
     (gnus-reviews-track-individual-comment text status nil author-name author-email)))
+
+;;;###autoload
+(defun gnus-reviews-greet ()
+  "Insert a greeting at the beginning of the mail being composed.
+The greeting uses the first name of the recipient and follows
+the template defined in `gnus-reviews-greeting-template'."
+  (interactive)
+  (unless (derived-mode-p 'message-mode)
+    (error "Must be in a message composition buffer"))
+  (let* ((to-header (message-fetch-field "To"))
+         (first-name (gnus-reviews--extract-first-name to-header)))
+    (unless first-name
+      (error "Could not extract recipient name from To field"))
+    (save-excursion
+      ;; Go to the beginning of the message body (after headers)
+      (message-goto-body)
+      ;; Insert the greeting
+      (insert (format gnus-reviews-greeting-template first-name)))))
 
 ;; Provide the package
 (provide 'gnus-reviews)
