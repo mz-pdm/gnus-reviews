@@ -792,10 +792,11 @@ pending comments, and copy it to the specified target group for follow-up."
   (unless (gnus-reviews-is-review-email-p)
     (error "Current article is not a review email"))
   (gnus-reviews--ensure-groups)
-  (gnus-reviews-increase-score)
   (when (> (gnus-reviews-extract-and-track-comments) 0)
     (gnus-summary-mark-article nil gnus-ticked-mark))
-  (gnus-summary-copy-article nil target-group))
+  (unless (string= gnus-newsgroup-name target-group)
+    (gnus-reviews-increase-score)
+    (gnus-summary-copy-article nil target-group)))
 
 ;;;###autoload
 (defun gnus-reviews-process-my-patch-review ()
