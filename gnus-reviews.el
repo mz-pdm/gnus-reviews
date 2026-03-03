@@ -158,6 +158,11 @@ Returns the position of the heading or nil if not found."
         (org-back-to-heading t)
         (point)))))
 
+(defun gnus-reviews--insert-on-new-line (text)
+  "Insert TEXT, ensuring it starts on a new line."
+  (unless (bolp) (insert "\n"))
+  (insert text))
+
 (defun gnus-reviews--insert-properties-block (properties)
   (insert "  :PROPERTIES:\n")
   (dolist (p properties)
@@ -197,7 +202,7 @@ Returns the position of the created series heading."
            (author (or (plist-get comment-data :author-name)
                        (plist-get comment-data :author-email)))
            (review-email-id (plist-get comment-data :review-email-id)))
-      (insert (format "\n**** %s %s\n" status content-intro))
+      (gnus-reviews--insert-on-new-line (format "**** %s %s\n" status content-intro))
       (when review-email-id
         (gnus-reviews--insert-properties-block
          `(("AUTHOR" . ,(gnus-reviews--gnus-link review-email-id author)))))
@@ -232,7 +237,7 @@ Returns the position of the version heading."
           existing-pos
         ;; Create new version node
         (org-end-of-subtree t nil)
-        (insert (format "\n** PENDING %s\n" version-title))
+        (gnus-reviews--insert-on-new-line (format "** PENDING %s\n" version-title))
         (gnus-reviews--insert-properties-block `(("CUSTOM_ID" . ,version-id)
                                                  ("VERSION_NUMBER" . ,version)))
         (save-buffer)
@@ -252,7 +257,7 @@ Returns the position of the patch heading."
     (let ((gnus-link (gnus-reviews--gnus-link article-id "Patch e-mail")))
       ;; Create patch node under version
       (org-end-of-subtree t nil)
-      (insert (format "\n*** PENDING %s\n" article-title))
+      (gnus-reviews--insert-on-new-line (format "*** PENDING %s\n" article-title))
       (gnus-reviews--insert-properties-block `(("CUSTOM_ID" . ,article-id)
                                                ("ARTICLE_TITLE" . ,article-title)
                                                ("GNUS_LINK" . ,gnus-link)))
@@ -661,7 +666,7 @@ Returns the position of the selected section, or nil if cancelled."
                           (org-end-of-subtree t nil)
                           (point)))))
      (goto-char section-end)
-     (insert (format "\nRebuttal by %s:\n" author-name))
+     (gnus-reviews--insert-on-new-line (format "Rebuttal by %s:\n" author-name))
      (insert "#+BEGIN_REBUTTAL\n")
      (dolist (line (split-string rebuttal-text "\n"))
        (insert "  " line "\n"))
