@@ -618,8 +618,61 @@ AUTHOR-NAME and AUTHOR-EMAIL are author information from the review email."
     ;; Store comment in Org file using patch email ID as the article node
     (gnus-reviews--store-comment-in-org patch-email-id comment-data)))
 
+(defun gnus-reviews--find-patch-comment-sections (patch-email-id)
+  "Find all comment sections for a given patch.
+Returns a list of (section-title section-position) pairs."
+  (gnus-reviews--with-org-buffer
+   (let ((patch-pos (gnus-reviews--find-org-node-by-id patch-email-id))
+         (comment-sections '()))
+     (when patch-pos
+       (goto-char patch-pos)
+       (org-end-of-subtree t nil)
+       (let ((patch-end (point)))
+         (goto-char patch-pos)
+         (while (re-search-forward "^\\*\\*\\*\\*\\s-+\\(\\S-+\\)\\s-+\\(.+\\)" patch-end t)
+           (let* ((status (match-string 1))
+                  (comment-intro (match-string 2))
+                  (section-title (format "%s: %s" status comment-intro))
+                  (section-pos (match-beginning 0)))
+             (push (list section-title section-pos) comment-sections)))))
+     (nreverse comment-sections))))
+
+(defun gnus-reviews--select-comment-section (patch-email-id)
+  "Let user select a comment section for rebuttal.
+Returns the position of the selected section, or nil if cancelled."
+  (let ((sections (gnus-reviews--find-patch-comment-sections patch-email-id)))
+    (if sections
+        (let* ((section-titles (mapcar #'car sections))
+               (selected-title (completing-read "Select comment section for rebuttal: "
+                                                section-titles nil t)))
+          (cadr (assoc selected-title sections)))
+      (error "No existing comment sections found for this patch"))))
+
+(defun gnus-reviews--add-rebuttal-to-section (section-pos rebuttal-text author-name)
+  "Add a rebuttal comment to an existing comment section."
+  (gnus-reviews--with-org-buffer
+   (goto-char section-pos)
+   ;; Move to end of current line to get past the **** heading
+   (end-of-line)
+   ;; Find the end of this comment section (before next **** or end of subtree)
+   (let ((section-end (save-excursion
+                        (if (re-search-forward "^\\*\\*\\*\\*" nil t)
+                            (match-beginning 0)
+                          (org-end-of-subtree t nil)
+                          (point)))))
+     (goto-char section-end)
+     (insert (format "\nRebuttal by %s:\n" author-name))
+     (insert "#+BEGIN_REBUTTAL\n")
+     (dolist (line (split-string rebuttal-text "\n"))
+       (insert "  " line "\n"))
+     (insert "#+END_REBUTTAL\n")
+     (save-buffer))))
+
 (defun gnus-reviews--get-status-choices (initial)
   (let ((base-choices '("PENDING" "REJECTED" "DONE" "skip")))
+    (when (gnus-reviews--find-patch-comment-sections
+           (gnus-reviews--find-patch-email-id))
+      (setq base-choices (append base-choices '("rebuttal"))))
     (if initial
         base-choices
       (cons "merge" base-choices))))
@@ -937,18 +990,28 @@ Handles formats like \"First Last <email@domain>\" or \"email@domain\"."
                     (unless preceding-comment
                       (error "No preceding comment to merge with"))
                     (setcar preceding-comment (concat (car preceding-comment) "\n\n" text)))
+                   ((string= status "rebuttal")
+                    (let* ((patch-email-id (gnus-reviews--find-patch-email-id))
+                           (section-pos (gnus-reviews--select-comment-section patch-email-id))
+                           (processed (list text context status section-pos)))
+                      (push processed processed-comments)
+                      (setq preceding-comment processed)))
                    (t
-                    (let ((processed (list text context status)))
+                    (let ((processed (list text context status nil)))
                       (push processed processed-comments)
                       (setq preceding-comment processed)))))))
             (let* ((author (gnus-reviews--author))
                    (author-name (car author))
                    (author-email (cdr author)))
               (dolist (comment (nreverse processed-comments))
-		(cl-destructuring-bind (text context status) comment
-                  (gnus-reviews-track-individual-comment text status context author-name author-email)
-                  (when (string= status "PENDING")
-                    (cl-incf n-pending-comments))))))
+		(cl-destructuring-bind (text context status section-pos) comment
+                  (if section-pos
+                      ;; Handle rebuttal comment
+                      (gnus-reviews--add-rebuttal-to-section section-pos text author-name)
+                    ;; Handle regular comment
+                    (gnus-reviews-track-individual-comment text status context author-name author-email)
+                    (when (string= status "PENDING")
+                      (cl-incf n-pending-comments)))))))
           (gnus-reviews-increase-score))
       (message "No comments found in this article"))
     n-pending-comments))
