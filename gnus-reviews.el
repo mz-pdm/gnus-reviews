@@ -794,7 +794,7 @@ and displaying a formatted message."
         (message message-format copied-count target-group)))))
 
 ;;;###autoload
-(defun gnus-reviews-add-reviewed-by-tag ()
+(defun gnus-reviews-insert-reviewed-by ()
   "Insert a Reviewed-by tag with user's name and email at point."
   (interactive)
   (if (and user-full-name user-mail-address)
@@ -857,7 +857,7 @@ pending comments, and copy it to the specified target group for follow-up."
     (gnus-summary-copy-article nil target-group)))
 
 ;;;###autoload
-(defun gnus-reviews-process-my-patch-review ()
+(defun gnus-reviews-process-own-review ()
   "Process a review of your own patch.
 Extracts and tracks individual comments, ticks the article if there are
 pending comments, and copies it to the own patches group for follow-up."
@@ -865,7 +865,7 @@ pending comments, and copies it to the own patches group for follow-up."
   (gnus-reviews--process-patch-review-helper gnus-reviews-own-patches-group))
 
 ;;;###autoload
-(defun gnus-reviews-process-others-patch-review ()
+(defun gnus-reviews-process-review ()
   "Process a review of someone else's patch.
 Extracts and tracks individual comments, ticks the article if there are
 pending comments, and copies it to the reviews group for follow-up."
@@ -873,7 +873,7 @@ pending comments, and copies it to the reviews group for follow-up."
   (gnus-reviews--process-patch-review-helper gnus-reviews-to-review-group))
 
 ;;;###autoload
-(defun gnus-reviews-copy-my-patch-series ()
+(defun gnus-reviews-copy-own-series ()
   "Copy the entire current patch series to own patches group.
 Ticks all articles in the series, copies them to own patches group,
 and increases score for better visibility. Use this when you want to
@@ -884,7 +884,7 @@ track your own patch series without processing review comments."
    "Copied patch series: %d articles ticked and copied to %s"))
 
 ;;;###autoload
-(defun gnus-reviews-queue-series-for-review ()
+(defun gnus-reviews-queue-series ()
   "Queue the entire current patch series for review.
 Ticks all articles in the series, copies them to review group,
 and increases score for better visibility. Use this when you want to
