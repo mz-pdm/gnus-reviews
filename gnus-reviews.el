@@ -379,24 +379,16 @@ Returns the position of the patch heading."
 Strips reply prefixes (Re:, Fwd:) and patch type prefixes ([PATCH], [RFC])
 while preserving series information (e.g., 1/3) from any email that has it."
   (gnus-with-article-buffer
-    (let ((subject (gnus-fetch-field "Subject")))
-      (when subject
-        (setq subject (string-trim subject))
+    (when-let ((subject (gnus-fetch-field "Subject")))
+      (let ((subject (string-trim subject)))
         ;; First, extract any patch series information that might be present
-        (let ((series-info nil)
-              (clean-subject subject))
-          ;; Look for series numbers in various formats
-          (cond
-           ;; Format: [PATCH v2 1/3] or [RFC PATCH v1 2/5] etc.
-           ((string-match "\\[\\(?:PATCH\\|RFC\\)\\(?:[^]]*?\\)\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
-            (setq series-info (format "[#%s/%s]" (match-string 1 subject) (match-string 2 subject)))
-            (setq clean-subject (match-string 3 subject)))
-           ;; Format: Re: [PATCH v2 1/3] (reply to patch with series info)
-           ((string-match "\\(?:Re:\\s-*\\|Fwd:\\s-*\\)+.*?\\[\\(?:PATCH\\|RFC\\)\\(?:[^]]*?\\)\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
-            (setq series-info (format "[#%s/%s]" (match-string 1 subject) (match-string 2 subject)))
-            (setq clean-subject (match-string 3 subject))))
+        (let (series-info clean-subject)
+          (if (string-match "\\(?:\\(?:Re:\\s-*\\|Fwd:\\s-*\\)+.*?\\)?\\[\\(?:PATCH\\|RFC\\)[^]]*?\\s-+\\([0-9]+\\)/\\([0-9]+\\)\\]\\s-*\\(.*\\)" subject)
+              (setq series-info (format "[#%s/%s]" (match-string 1 subject) (match-string 2 subject))
+                    clean-subject (match-string 3 subject))
+            (setq clean-subject subject))
 
-          ;; Remove reply prefixes
+          ;; Remove reply prefixes from the (potentially already cleaned) subject
           (setq clean-subject
                 (replace-regexp-in-string "^\\(Re:\\s-*\\|Fwd:\\s-*\\)+" "" clean-subject))
 
@@ -450,69 +442,26 @@ while preserving series information (e.g., 1/3) from any email that has it."
   "Extract patch information from the current article.
 Returns a plist with :series-num, :series-total, :version, :subject."
   (gnus-with-article-buffer
-    (let ((subject (gnus-fetch-field "Subject")))
-      (when subject
-        (cond
-         ;; PATCH series with version and series numbers
-         ((string-match (rx "["
-                            "PATCH"
-                            (optional (seq (+ whitespace) "v" (group (+ digit))))
-                            (+ whitespace)
-                            (group (+ digit))
-                            "/"
-                            (group (+ digit))
-                            "]"
-                            (* whitespace)
-                            (group (* anything)))
-                        subject)
-          (list :version (match-string 1 subject)
-                :series-num (string-to-number (match-string 2 subject))
-                :series-total (string-to-number (match-string 3 subject))
-                :subject (string-trim (match-string 4 subject))))
-         ;; RFC series with version and series numbers
-         ((string-match (rx "["
-                            "RFC"
-                            (optional (seq (+ whitespace) "PATCH"))
-                            (optional (seq (+ whitespace) "v" (group (+ digit))))
-                            (+ whitespace)
-                            (group (+ digit))
-                            "/"
-                            (group (+ digit))
-                            "]"
-                            (* whitespace)
-                            (group (* anything)))
-                        subject)
-          (list :version (match-string 1 subject)
-                :series-num (string-to-number (match-string 2 subject))
-                :series-total (string-to-number (match-string 3 subject))
-                :subject (string-trim (match-string 4 subject))
-                :rfc t))
-         ;; Single PATCH with version
-         ((string-match (rx "["
-                            "PATCH"
-                            (optional (seq (+ whitespace) "v" (group (+ digit))))
-                            "]"
-                            (* whitespace)
-                            (group (* anything)))
-                        subject)
-          (list :version (match-string 1 subject)
-                :series-num 1
-                :series-total 1
-                :subject (string-trim (match-string 2 subject))))
-         ;; Single RFC with version
-         ((string-match (rx "["
-                            "RFC"
-                            (optional (seq (+ whitespace) "PATCH"))
-                            (optional (seq (+ whitespace) "v" (group (+ digit))))
-                            "]"
-                            (* whitespace)
-                            (group (* anything)))
-                        subject)
-          (list :version (match-string 1 subject)
-                :series-num 1
-                :series-total 1
-                :subject (string-trim (match-string 2 subject))
-                :rfc t)))))))
+    (when-let ((subject (gnus-fetch-field "Subject")))
+      (let ((rfc (string-match-p "\\[RFC" subject)))
+        (if (string-match (rx "["
+                              (or "PATCH" "RFC")
+                              (optional (seq (+ whitespace) "PATCH")) ; for RFC PATCH
+                              (optional (seq (+ whitespace) "v" (group (+ digit))))
+                              (optional (seq (+ whitespace)
+                                           (group (+ digit))
+                                           "/"
+                                           (group (+ digit))))
+                              "]"
+                              (* whitespace)
+                              (group (* anything)))
+                          subject)
+            (list :version (match-string 1 subject)
+                  :series-num (if-let (s (match-string 2 subject)) (string-to-number s) 1)
+                  :series-total (if-let (s (match-string 3 subject)) (string-to-number s) 1)
+                  :subject (string-trim (match-string 4 subject))
+                  :rfc rfc)
+          nil)))))
 
 (defun gnus-reviews-extract-patch-info-from (message-id)
   (gnus-reviews--with-article message-id
@@ -530,71 +479,47 @@ Returns a list of (content start-pos end-pos context) for each comment."
       ;; Skip headers
       (when (string-match "\n\n" content)
         (setq body-start (match-end 0)))
-
       (with-temp-buffer
         (insert (substring content body-start))
         (goto-char (point-min))
-
         (let ((current-context nil)
               (comment-lines '())
               (comment-start-pos nil))
-
-          (while (not (eobp))
-            (cond
-             ;; Found quoted line - save any accumulated comment block first
-             ((looking-at "^> \\(.+\\)$")
-              (when comment-lines
-                (let ((comment-text (string-join (nreverse comment-lines) "\n")))
-                  (when (and (> (length comment-text) 0)
-                             (string-match "\\w" comment-text))
-                    (push (list comment-text
-                                (+ body-start comment-start-pos)
-                                (+ body-start (line-end-position 0))
-                                current-context)
-                          comments)))
-                (setq comment-lines nil
-                      comment-start-pos nil))
-              ;; Update context for future comments
-              (setq current-context (match-string-no-properties 1)))
-
-             ;; Found non-quoted, non-empty line
-             ((looking-at "^\\([^>\n].*\\)$")
-              (let ((line-text (save-match-data (string-trim (match-string-no-properties 1)))))
-                ;; Exclude lines matching configured exclusion patterns
-                (when (and (> (length line-text) 0)
-                           (string-match "\\w" line-text)
-                           (not (gnus-reviews--match-patterns line-text gnus-reviews-comment-exclusion-patterns)))
-                  (when (null comment-start-pos)
-                    (setq comment-start-pos (line-beginning-position)))
-                  (push line-text comment-lines))))
-
-             ;; Empty line or other - save accumulated comment block if any
-             (t
-              (when comment-lines
-                (let ((comment-text (string-join (nreverse comment-lines) "\n")))
-                  (when (and (> (length comment-text) 0)
-                             (string-match "\\w" comment-text))
-                    (push (list comment-text
-                                (+ body-start comment-start-pos)
-                                (+ body-start (line-end-position 0))
-                                current-context)
-                          comments)))
-                (setq comment-lines nil
-                      comment-start-pos nil))))
-
-            (forward-line 1))
-
-          ;; Handle any remaining comment block at end of buffer
-          (when comment-lines
-            (let ((comment-text (string-join (nreverse comment-lines) "\n")))
-              (when (and (> (length comment-text) 0)
-                         (string-match "\\w" comment-text))
-                (push (list comment-text
-                            (+ body-start comment-start-pos)
-                            (+ body-start (point-max))
-                            current-context)
-                      comments))))))
-
+          (cl-flet ((finalize-comment (end-pos)
+                      (when comment-lines
+                        (let ((comment-text (string-join (nreverse comment-lines) "\n")))
+                          (when (and (> (length comment-text) 0)
+                                     (string-match "\\w" comment-text))
+                            (push (list comment-text
+                                        (+ body-start comment-start-pos)
+                                        (+ body-start end-pos)
+                                        current-context)
+                                  comments)))
+                        (setq comment-lines nil
+                              comment-start-pos nil))))
+            (while (not (eobp))
+              (cond
+               ;; Found quoted line - save any accumulated comment block first
+               ((looking-at "^> \\(.+\\)$")
+                (finalize-comment (line-end-position 0))
+                ;; Update context for future comments
+                (setq current-context (match-string-no-properties 1)))
+               ;; Found non-quoted, non-empty line
+               ((looking-at "^\\([^>\n].*\\)$")
+                (let ((line-text (save-match-data (string-trim (match-string-no-properties 1)))))
+                  ;; Exclude lines matching configured exclusion patterns
+                  (when (and (> (length line-text) 0)
+                             (string-match "\\w" line-text)
+                             (not (gnus-reviews--match-patterns line-text gnus-reviews-comment-exclusion-patterns)))
+                    (when (null comment-start-pos)
+                      (setq comment-start-pos (line-beginning-position)))
+                    (push line-text comment-lines))))
+               ;; Empty line or other - save accumulated comment block if any
+               (t
+                (finalize-comment (line-end-position 0))))
+              (forward-line 1))
+            ;; Handle any remaining comment block at end of buffer
+            (finalize-comment (point-max)))))
       (nreverse comments))))
 
 (defun gnus-reviews-track-individual-comment (comment-text status context author-name author-email)
@@ -955,71 +880,86 @@ Handles formats like \"First Last <email@domain>\" or \"email@domain\"."
       (when (and name-part (> (length name-part) 0))
         (car (split-string name-part "\\s-+"))))))
 
+(defun gnus-reviews--get-comment-status-interactively (comment preceding-comment)
+  "Interactively get status for a single COMMENT.
+Shows the comment in the article buffer and prompts the user for a status.
+PRECEDING-COMMENT is used to offer a `merge' option."
+  (let* ((text (nth 0 comment))
+         (start-pos (nth 1 comment))
+         (end-pos (nth 2 comment))
+         (context (nth 3 comment))
+         (display-text (if context
+                           (format "Context: %s\nComment: %s"
+                                   context
+                                   (substring text 0 (min 100 (length text))))
+                         (substring text 0 (min 100 (length text)))))
+         (status-choices (gnus-reviews--get-status-choices (not preceding-comment)))
+         (prompt-text (format "Status for comment \"%s\": " display-text)))
+    ;; Scroll article to show the comment location
+    (when-let ((article-window (get-buffer-window gnus-article-buffer)))
+      (with-selected-window article-window
+        (goto-char start-pos)
+        (recenter)
+        ;; Highlight the comment region briefly
+        (when (fboundp 'pulse-momentary-highlight-region)
+          (pulse-momentary-highlight-region start-pos end-pos))))
+    (completing-read prompt-text status-choices nil t)))
+
+(defun gnus-reviews--store-processed-comments (processed-comments)
+  "Store PROCESSED-COMMENTS, handling rebuttals and tracking new comments.
+Returns the number of pending comments."
+  (let* ((author (gnus-reviews--author))
+         (author-name (car author))
+         (author-email (cdr author))
+         (n-pending-comments 0))
+    (dolist (comment (nreverse processed-comments))
+      (cl-destructuring-bind (text context status section-pos) comment
+        (if section-pos
+            ;; Handle rebuttal comment
+            (gnus-reviews--add-rebuttal-to-section section-pos text author-name)
+          ;; Handle regular comment
+          (gnus-reviews-track-individual-comment text status context author-name author-email)
+          (when (string= status "PENDING")
+            (cl-incf n-pending-comments)))))
+    (when (> (length processed-comments) 0)
+      (gnus-reviews-increase-score))
+    n-pending-comments))
+
 ;;;###autoload
 (defun gnus-reviews-extract-and-track-comments ()
   "Extract individual comments from current article and assign status to each."
   (interactive)
   (unless (gnus-reviews-is-review-email-p)
     (error "Not a review e-mail"))
-  (let ((comments (gnus-reviews--parse-individual-comments))
-        (n-pending-comments 0))
-    (if comments
+  (let ((comments (gnus-reviews--parse-individual-comments)))
+    (if (not comments)
         (progn
-          (let ((preceding-comment nil)
-                (processed-comments '()))
-            (dolist (comment comments)
-              (let* ((text (nth 0 comment))
-                     (start-pos (nth 1 comment))
-                     (end-pos (nth 2 comment))
-                     (context (nth 3 comment))
-                     (display-text (if context
-                                       (format "Context: %s\nComment: %s"
-                                               context
-                                               (substring text 0 (min 100 (length text))))
-                                     (substring text 0 (min 100 (length text)))))
-                     (status-choices (gnus-reviews--get-status-choices (not preceding-comment)))
-                     (prompt-text (format "Status for comment \"%s\": " display-text)))
-                ;; Scroll article to show the comment location
-                (when-let ((article-window (get-buffer-window gnus-article-buffer)))
-                  (with-selected-window article-window
-                    (goto-char start-pos)
-                    (recenter)
-                    ;; Highlight the comment region briefly
-                    (when (fboundp 'pulse-momentary-highlight-region)
-                      (pulse-momentary-highlight-region start-pos end-pos))))
-                (let ((status (completing-read prompt-text status-choices nil t)))
-                  (cond
-                   ((string= status "skip")
-                    nil)
-                   ((string= status "merge")
-                    (unless preceding-comment
-                      (error "No preceding comment to merge with"))
-                    (setcar preceding-comment (concat (car preceding-comment) "\n\n" text)))
-                   ((string= status "rebuttal")
-                    (let* ((patch-email-id (gnus-reviews--find-patch-email-id))
-                           (section-pos (gnus-reviews--select-comment-section patch-email-id))
-                           (processed (list text context status section-pos)))
-                      (push processed processed-comments)
-                      (setq preceding-comment processed)))
-                   (t
-                    (let ((processed (list text context status nil)))
-                      (push processed processed-comments)
-                      (setq preceding-comment processed)))))))
-            (let* ((author (gnus-reviews--author))
-                   (author-name (car author))
-                   (author-email (cdr author)))
-              (dolist (comment (nreverse processed-comments))
-		(cl-destructuring-bind (text context status section-pos) comment
-                  (if section-pos
-                      ;; Handle rebuttal comment
-                      (gnus-reviews--add-rebuttal-to-section section-pos text author-name)
-                    ;; Handle regular comment
-                    (gnus-reviews-track-individual-comment text status context author-name author-email)
-                    (when (string= status "PENDING")
-                      (cl-incf n-pending-comments)))))))
-          (gnus-reviews-increase-score))
-      (message "No comments found in this article"))
-    n-pending-comments))
+          (message "No comments found in this article")
+          0)
+      (let ((preceding-comment nil)
+            (processed-comments '()))
+        (dolist (comment comments)
+          (let* ((text (nth 0 comment))
+                 (context (nth 3 comment))
+                 (status (gnus-reviews--get-comment-status-interactively comment preceding-comment)))
+            (cond
+             ((string= status "skip")
+              nil)
+             ((string= status "merge")
+              (unless preceding-comment
+                (error "No preceding comment to merge with"))
+              (setcar preceding-comment (concat (car preceding-comment) "\n\n" text)))
+             ((string= status "rebuttal")
+              (let* ((patch-email-id (gnus-reviews--find-patch-email-id))
+                     (section-pos (gnus-reviews--select-comment-section patch-email-id))
+                     (processed (list text context status section-pos)))
+                (push processed processed-comments)
+                (setq preceding-comment processed)))
+             (t
+              (let ((processed (list text context status nil)))
+                (push processed processed-comments)
+                (setq preceding-comment processed))))))
+        (gnus-reviews--store-processed-comments processed-comments)))))
 
 ;;;###autoload
 (defun gnus-reviews-mark-region-as-comment (start end status)
