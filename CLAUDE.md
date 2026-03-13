@@ -1,10 +1,1 @@
-# Workflow
-- Make sure all source files byte compile cleanly.
-- Make sure that all used Elisp functions and variables actually exist, use the
-  Emacs help system to check that.
-- Make sure all parentheses, brackets and quotes are matching their counterparts.
-- Don't commit byte compiled binary files.
-- Maintain proper indentation; you can use indent-region function to indent or to
-  check indentation.  Make sure to load the file first in order to respect macro
-  indentation declarations.
-- Try to avoid code duplication.
+AGENTS.md
