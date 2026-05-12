@@ -8,16 +8,6 @@ This is an AI experiment, the project is of AI-quality.
 
 Gnus Reviews helps you organize and track email-based code review workflows. While designed with libcamera development in mind, it's generic and can be used with any project that uses email for code reviews.
 
-## Features
-
-- **Message Classification**: Automatically identifies patch emails vs. review comments
-- **Group Organization**: Copies messages to purpose-specific Gnus groups
-- **Individual Comment Tracking**: Track specific comments within review emails with statuses (pending/addressed/dismissed)
-- **Patch Series Awareness**: Understands patch series and tracks comments across the entire series
-- **Scoring Integration**: Automatically boosts scores for review-relevant articles
-- **Review Lifecycle Management**: Prune old completed reviews while preserving pending ones
-- **Persistent Storage**: Automatically saves and loads comment tracking data
-
 ## Installation
 
 1. Place `gnus-reviews.el` in your Emacs load path
@@ -44,50 +34,31 @@ Customize the package with `M-x customize-group RET gnus-reviews RET` or add to 
 
 ;; Score increase for review articles
 (setq gnus-reviews-score-increase 1000)
-
-;; Auto-expire completed reviews after N days
-(setq gnus-reviews-auto-expire-days 30)
 ```
 
 ## Usage
 
-### Basic Commands
+### Copying Articles
 
-- `M-x gnus-reviews-process-article` - Automatically classify and copy current article to appropriate group
-- `M-x gnus-reviews-copy-to-group` - Manually copy current article to a review group
-- `M-x gnus-reviews-increase-score` - Boost score for review-relevant articles
+- `M-x gnus-reviews-copy-to-group` - Copy current article to a review group (suggests group based on message type; prefix arg ticks the article)
+- `M-x gnus-reviews-copy-own-series` - Copy entire current patch series to own-patches group and boost its score
+- `M-x gnus-reviews-queue-series` - Copy entire current patch series to reviews group and boost its score
+- `M-x gnus-reviews-watch-thread` - Copy entire current thread to watching group and boost its score
 
-### Comment Tracking
+### Processing Reviews
 
-- `M-x gnus-reviews-extract-and-track-comments` - Parse individual comments from a review email and assign statuses
-- `M-x gnus-reviews-mark-region-as-comment` - Mark selected text as an individual comment
-- `M-x gnus-reviews-mark-comment-addressed` - Mark a pending comment as addressed
+- `M-x gnus-reviews-process-own-review` - Process a review comment on your own patch (boost score and copy to own-patches group)
+- `M-x gnus-reviews-process-review` - Process a review comment on someone else's patch (boost score and copy to reviews group)
 
-### Viewing Comments
+### Scoring
 
-- `M-x gnus-reviews-show-article-comments` - Show all tracked comments for current article
-- `M-x gnus-reviews-show-series-comments` - Show all comments for current patch series
+- `M-x gnus-reviews-increase-score` - Boost score for the current article's subthread and subject
 
-### Maintenance
+### Composing
 
-- `M-x gnus-reviews-prune-old-reviews` - Remove old completed/dismissed reviews (keeps pending ones)
-
-## Workflow Example
-
-1. **Incoming Review**: Use `gnus-reviews-process-article` to automatically classify and organize
-2. **Track Comments**: For review emails, use `gnus-reviews-extract-and-track-comments` to parse and track individual feedback items
-3. **Monitor Progress**: Use `gnus-reviews-show-series-comments` to see the status of all comments for a patch series
-4. **Mark Resolution**: Use `gnus-reviews-mark-comment-addressed` when you've addressed feedback
-5. **Cleanup**: Periodically run `gnus-reviews-prune-old-reviews` to remove old completed reviews
-
-## Comment Status Types
-
-- **pending**: Comment needs to be addressed
-- **addressed**: Comment has been resolved/fixed
-- **dismissed**: Comment was acknowledged but won't be addressed
+- `M-x gnus-reviews-insert-reviewed-by` - Insert a `Reviewed-by:` tag with your name and email at point
+- `M-x gnus-reviews-greet` - Insert a greeting addressed to the recipient at the start of the message body
 
 ## License
 
 GPL 3 or later
-
-Copyright (C) 2025 Red Hat, Inc.
