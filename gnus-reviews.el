@@ -300,7 +300,7 @@ and displaying a formatted message."
     (error "User name or email not configured.")))
 
 ;;;###autoload
-(defun gnus-reviews-copy-to-group (&optional group)
+(defun gnus-reviews-copy (&optional group)
   "Copy current article to GROUP.
 When called interactively, automatically suggests an appropriate group
 based on message classification but always asks for confirmation.
@@ -333,7 +333,7 @@ are articles with processed marks, tick them all."
            (if current-prefix-arg " (ticked)" "")))
 
 ;;;###autoload
-(defun gnus-reviews-watch-thread ()
+(defun gnus-reviews-watch ()
   "Watch the current thread by copying all thread articles to watching group.
 Also increases the score for the thread to boost visibility."
   (interactive)
@@ -367,7 +367,7 @@ Increases score and copies the article to the reviews group for follow-up."
   (gnus-reviews--process-patch-review-helper gnus-reviews-to-review-group))
 
 ;;;###autoload
-(defun gnus-reviews-copy-own-series ()
+(defun gnus-reviews-store-own-patches ()
   "Copy the entire current patch series to own patches group.
 Ticks all articles in the series, copies them to own patches group,
 and increases score for better visibility. Use this when you want to
@@ -378,7 +378,7 @@ track your own patch series without processing review comments."
    "Copied patch series: %d articles ticked and copied to %s"))
 
 ;;;###autoload
-(defun gnus-reviews-queue-series ()
+(defun gnus-reviews-store-for-review ()
   "Queue the entire current patch series for review.
 Ticks all articles in the series, copies them to review group,
 and increases score for better visibility. Use this when you want to
@@ -437,7 +437,7 @@ Handles formats like \"First Last <email@domain>\" or \"email@domain\"."
         (car (split-string name-part "\\s-+"))))))
 
 ;;;###autoload
-(defun gnus-reviews-greet ()
+(defun gnus-reviews-insert-greeting ()
   "Insert a greeting at the beginning of the mail being composed.
 The greeting uses the first name of the recipient and follows
 the template defined in `gnus-reviews-greeting-template'."
