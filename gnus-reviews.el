@@ -465,7 +465,6 @@ the template defined in `gnus-reviews-greeting-template'."
     (define-key map (kbd "p") #'gnus-reviews-store-own-patches)
     (define-key map (kbd "q") #'gnus-reviews-store-for-review)
     (define-key map (kbd "s") #'gnus-reviews-increase-score)
-    (define-key map (kbd "R") #'gnus-reviews-insert-reviewed-by)
     map)
   "Keymap for gnus-reviews commands in Gnus summary buffer.
 Bound to z in `gnus-summary-mode-map'.
@@ -477,8 +476,7 @@ Key summary:
   z r  `gnus-reviews-process-review'     Process a review of another's patch.
   z p  `gnus-reviews-store-own-patches'  Store own patch series to group.
   z q  `gnus-reviews-store-for-review'   Queue patch series for review.
-  z s  `gnus-reviews-increase-score'     Increase score for the current article.
-  z R  `gnus-reviews-insert-reviewed-by' Insert a Reviewed-by tag at point.")
+  z s  `gnus-reviews-increase-score'     Increase score for the current article.")
 
 (define-key gnus-summary-mode-map (kbd "z") gnus-reviews-summary-map)
 
