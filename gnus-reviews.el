@@ -291,13 +291,28 @@ and displaying a formatted message."
           (gnus-summary-goto-article current-article))
         (message message-format copied-count target-group)))))
 
+(defun gnus-reviews--insert-tag (tag)
+  "Insert TAG with user's name and email at point.
+Signals an error if `user-full-name' or `user-mail-address' is not set."
+  (if (and user-full-name user-mail-address)
+      (insert (format "%s: %s <%s>" tag user-full-name user-mail-address))
+    (error "User name or email not configured.")))
+
 ;;;###autoload
 (defun gnus-reviews-insert-reviewed-by ()
   "Insert a Reviewed-by tag with user's name and email at point."
   (interactive)
-  (if (and user-full-name user-mail-address)
-      (insert (format "Reviewed-by: %s <%s>\n" user-full-name user-mail-address))
-    (error "User name or email not configured.")))
+  (gnus-reviews--insert-tag "Reviewed-by")
+  (insert "\n"))
+
+;;;###autoload
+(defun gnus-reviews-insert-tested-by ()
+  "Insert a Tested-by tag with user's name and email at point.
+The point is left after the tag so a test environment comment
+can be appended on the same line."
+  (interactive)
+  (gnus-reviews--insert-tag "Tested-by")
+  (insert " "))
 
 ;;;###autoload
 (defun gnus-reviews-copy (&optional group)
