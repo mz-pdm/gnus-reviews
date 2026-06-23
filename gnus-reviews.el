@@ -360,8 +360,6 @@ Also increases the score for the thread to boost visibility."
   "Helper function to process a patch review and copy to TARGET-GROUP.
 Increase score and copy the article to the specified target group for
 follow-up."
-  (unless (gnus-reviews-is-review-email-p)
-    (error "Current article is not a review email"))
   (gnus-reviews--ensure-groups)
   (unless (string= gnus-newsgroup-name target-group)
     (gnus-reviews-increase-score)
@@ -410,28 +408,26 @@ Temporarily boosts the score of all articles in the subthread starting from
 the current article and all articles with the same core subject
 (prefixes stripped)."
   (interactive)
-  (when (or (gnus-reviews-is-patch-email-p)
-            (gnus-reviews-is-review-email-p))
-    (let ((article-id (gnus-reviews--current-article-id))
-          (subject (gnus-with-article-buffer (gnus-fetch-field "Subject")))
-          (score gnus-reviews-score-increase)
-          (parts '()))
-      ;; Score the subthread starting with current article
-      (when article-id
-        (gnus-summary-score-entry "thread" article-id 's score (current-time-string))
-        (push "subthread" parts))
-      ;; Score by cleaned subject (strip common prefixes)
-      (when subject
-        (let ((clean-subject (replace-regexp-in-string
-                              "^\\(\\(Re: \\|Fwd: \\)*\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*\\|\\(Re: \\|Fwd: \\)+\\)"
-                              "" subject)))
-          (when (> (length clean-subject) 0)
-            (gnus-summary-score-entry "subject" clean-subject 's score (current-time-string))
-            (push (format "subject '%s'" clean-subject) parts))))
-      ;; Refresh the summary and show single message
-      (gnus-summary-rescore)
-      (when parts
-        (message "Boosted %s score by %d" (string-join (nreverse parts) " and ") score)))))
+  (let ((article-id (gnus-reviews--current-article-id))
+        (subject (gnus-with-article-buffer (gnus-fetch-field "Subject")))
+        (score gnus-reviews-score-increase)
+        (parts '()))
+    ;; Score the subthread starting with current article
+    (when article-id
+      (gnus-summary-score-entry "thread" article-id 's score (current-time-string))
+      (push "subthread" parts))
+    ;; Score by cleaned subject (strip common prefixes)
+    (when subject
+      (let ((clean-subject (replace-regexp-in-string
+                            "^\\(\\(Re: \\|Fwd: \\)*\\[\\(PATCH\\|RFC\\)[^]]*\\]\\s-*\\|\\(Re: \\|Fwd: \\)+\\)"
+                            "" subject)))
+        (when (> (length clean-subject) 0)
+          (gnus-summary-score-entry "subject" clean-subject 's score (current-time-string))
+          (push (format "subject '%s'" clean-subject) parts))))
+    ;; Refresh the summary and show single message
+    (gnus-summary-rescore)
+    (when parts
+      (message "Boosted %s score by %d" (string-join (nreverse parts) " and ") score))))
 
 (defun gnus-reviews--extract-first-name (header)
   "Extract the first name from a mail HEADER like To or From.
