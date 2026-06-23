@@ -358,11 +358,13 @@ Also increases the score for the thread to boost visibility."
 
 (defun gnus-reviews--process-patch-review-helper (target-group)
   "Helper function to process a patch review and copy to TARGET-GROUP.
-Increase score and copy the article to the specified target group for
-follow-up."
+Increase score, tick, and copy the article to the specified target group for
+follow-up.  If there are process-marked articles, tick and copy them all."
   (gnus-reviews--ensure-groups)
   (unless (string= gnus-newsgroup-name target-group)
     (gnus-reviews-increase-score)
+    (gnus-summary-mark-article nil gnus-ticked-mark)
+    (gnus-reviews--tick-processed-articles)
     (gnus-summary-copy-article nil target-group)))
 
 ;;;###autoload
